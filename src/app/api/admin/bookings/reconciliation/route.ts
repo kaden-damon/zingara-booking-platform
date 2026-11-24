@@ -20,7 +20,7 @@ import {
 } from "@/lib/twoSeaterOverrideServer";
 import { getInternalShowBookingDecision } from "@/lib/internalShowBookingPolicy";
 import { loadGuestReductionBasis } from "@/lib/guestReductionServer";
-import { previewGuestReduction, type GuestReductionDisposition } from "@/lib/guestReductionPolicy";
+import { confirmGuestReductionComponents, previewGuestReduction, type GuestReductionDisposition } from "@/lib/guestReductionPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -334,8 +334,16 @@ export async function POST(request: Request) {
       bookingContext?.booking_source === "corporate-direct";
     const isReduction = body.action === "guest-count" && bookingContext &&
       Number(body.guestCount) < Number(bookingContext.guest_count);
-    const reductionBasis = isReduction
+    let reductionBasis = isReduction
       ? await loadGuestReductionBasis(auth.serviceClient, bookingContext.id) : null;
+    if (reductionBasis?.componentConfirmationRequired) {
+      const confirmed = confirmGuestReductionComponents(reductionBasis, body.expectedReductionPreview?.confirmedComponents);
+      if (!confirmed) return Response.json({ code: "GUEST_REDUCTION_COMPONENTS_INVALID",
+        error: "Confirm the ticket, gratuity, prepaid bar and other amounts from the invoice. They must match the saved booking total." }, { status: 400 });
+      reductionBasis = confirmed;
+    } else if (isReduction && body.expectedReductionPreview?.confirmedComponents !== undefined) {
+      return Response.json({ code: "GUEST_REDUCTION_COMPONENTS_INVALID", error: "This booking already has a financial breakdown. Reload it before continuing." }, { status: 409 });
+    }
     const isBuyoutReduction = Boolean(reductionBasis?.blockedReason?.startsWith("Buyout:"));
     const isReductionReplay = body.action === "guest-count" && Boolean(body.reductionOperationId?.trim()) &&
       Number(body.guestCount) === Number(bookingContext?.guest_count);
@@ -584,6 +592,9 @@ export async function POST(request: Request) {
     const { data, error } = await auth.serviceClient.rpc(rpcName, parameters);
 
     if (error) {
+      if (error.message.includes("GUEST_REDUCTION_COMPONENTS_INVALID")) {
+        return Response.json({ code: "GUEST_REDUCTION_COMPONENTS_INVALID", error: "The invoice breakdown no longer matches this booking. Reload and check the amounts before saving." }, { status: 409 });
+      }
       if (error.message.includes("ADDED_GUEST_PRICE_REVIEW_REQUIRED")) {
         return Response.json({ code: "ADDED_GUEST_PRICE_REVIEW_REQUIRED",
           error: "Refresh this page and review the full added-guest price before saving." }, { status: 409 });

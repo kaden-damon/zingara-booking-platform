@@ -13,7 +13,38 @@ export type GuestReductionBasis = {
   blockedReason: string | null;
   depositOnly?: boolean;
   amountPaid?: number;
+  componentConfirmationRequired?: boolean;
+  confirmedComponents?: GuestReductionComponents;
 };
+
+export type GuestReductionComponents = {
+  ticketAmount: number;
+  gratuityAmount: number;
+  barTabAmount: number;
+  otherAmount: number;
+  sourceDocument: string;
+  confirmed: true;
+};
+
+export const corporateComponentsMissing = "The Corporate quote must establish separate ticket and gratuity components before allocation.";
+
+// Only the missing Corporate breakdown can be resolved here; other guards remain.
+export function confirmGuestReductionComponents(basis: GuestReductionBasis, input: unknown): GuestReductionBasis | null {
+  if (!basis.componentConfirmationRequired || basis.bookingKind !== "corporate") return input === undefined ? basis : null;
+  if (!input || typeof input !== "object") return null;
+  const c = input as Record<string, unknown>;
+  const fields = ["ticketAmount", "gratuityAmount", "barTabAmount", "otherAmount"] as const;
+  if (c.confirmed !== true || typeof c.sourceDocument !== "string" || !c.sourceDocument.trim() || c.sourceDocument.trim().length > 500 ||
+    fields.some(key => typeof c[key] !== "number" || !Number.isFinite(c[key]) || (c[key] as number) < 0 ||
+      !Number.isSafeInteger(Math.round((c[key] as number) * 100)) || Math.abs((c[key] as number) * 100 - Math.round((c[key] as number) * 100)) > 0.000001) ||
+    (c.ticketAmount as number) <= 0 || fields.reduce((sum, key) => sum + Math.round((c[key] as number) * 100), 0) !== Math.round(basis.totalAmount * 100)) return null;
+  const confirmedComponents: GuestReductionComponents = {
+    ticketAmount: c.ticketAmount as number, gratuityAmount: c.gratuityAmount as number,
+    barTabAmount: c.barTabAmount as number, otherAmount: c.otherAmount as number,
+    sourceDocument: c.sourceDocument.trim(), confirmed: true,
+  };
+  return { ...basis, ...confirmedComponents, blockedReason: null, confirmedComponents };
+}
 
 export type GuestReductionDisposition = "review-refund" | "bar-credit";
 const cents = (n: number) => Math.round(n * 100);
@@ -45,6 +76,7 @@ export function previewGuestReduction(
   const unresolvedGratuity = gratuityReview - gratuityForfeited - gratuityRefundEligible;
   const barCredit = disposition === "bar-credit" ? eligible : 0;
   return {
+    ...(basis.confirmedComponents ? { confirmedComponents: basis.confirmedComponents } : {}),
     version: 1,
     previousGuestCount: basis.guestCount, guestCount: newGuestCount,
     bookingKind: basis.bookingKind, cutoffAt: policy.cutoffAt,

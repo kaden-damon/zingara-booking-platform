@@ -21,8 +21,9 @@ test("missing Corporate components explain recovery without inventing values or 
   } } as unknown as SupabaseClient;
   const result = await loadGuestReductionBasis(client, "booking-id");
   assert.equal(calls, 1);
-  assert.match(result.blockedReason!, /^Accounts must confirm the separate ticket, gratuity and prepaid bar amounts/);
-  assert.deepEqual({ ...result, blockedReason: basis.blockedReason }, basis);
+  assert.match(result.blockedReason!, /^Confirm the invoice breakdown/);
+  assert.equal(result.componentConfirmationRequired, true);
+  assert.deepEqual({ ...result, componentConfirmationRequired: undefined, blockedReason: basis.blockedReason }, { ...basis, componentConfirmationRequired: undefined });
   assert.equal(previewGuestReduction(result, 11, "bar-credit", new Date("2026-11-24T10:00:00Z")), null);
   assert.notEqual(result, basis);
 });

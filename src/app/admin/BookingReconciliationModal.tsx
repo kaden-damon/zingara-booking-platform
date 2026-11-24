@@ -15,7 +15,7 @@ import {
   type LegacyGuestIncreasePaymentBasis,
 } from "@/lib/addedGuestFinancials";
 import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
-import { previewGuestReduction, type GuestReductionBasis, type GuestReductionDisposition } from "@/lib/guestReductionPolicy";
+import { confirmGuestReductionComponents, previewGuestReduction, type GuestReductionBasis, type GuestReductionDisposition } from "@/lib/guestReductionPolicy";
 
 export type BookingReconciliationDetails = {
   booking: {
@@ -265,6 +265,7 @@ export function GuestCountReconciliationModal(
   const [operationId] = useState(() => crypto.randomUUID());
   const [submissionError, setSubmissionError] = useState("");
   const [reductionDisposition, setReductionDisposition] = useState<GuestReductionDisposition>("review-refund");
+  const [components, setComponents] = useState({ ticketAmount: "", gratuityAmount: "", barTabAmount: "", otherAmount: "", sourceDocument: "", confirmed: false });
   const validation = validateGuestCountReconciliation(draft);
   const calculatedFinancials = calculateAddedGuestFinancials({
     basis: props.details.addedGuestPricingBasis,
@@ -293,7 +294,15 @@ export function GuestCountReconciliationModal(
   const manualFinancialsValid =
     !requiresManualFinancialBasis || manualFinancials.additionalAmount !== null;
   const isReduction = draft.guestCount < booking.guestCount;
-  const basis = props.details.reductionBasis;
+  const savedBasis = props.details.reductionBasis;
+  const confirmedBasis = savedBasis?.componentConfirmationRequired ? confirmGuestReductionComponents(savedBasis, {
+    ...components,
+    ticketAmount: components.ticketAmount.trim() ? Number(components.ticketAmount) : NaN,
+    gratuityAmount: components.gratuityAmount.trim() ? Number(components.gratuityAmount) : NaN,
+    barTabAmount: components.barTabAmount.trim() ? Number(components.barTabAmount) : NaN,
+    otherAmount: components.otherAmount.trim() ? Number(components.otherAmount) : NaN,
+  }) : null;
+  const basis = confirmedBasis ?? savedBasis;
   const isBuyoutReduction = Boolean(basis?.blockedReason?.startsWith("Buyout:"));
   const reductionPreview = basis ? previewGuestReduction(basis, draft.guestCount, reductionDisposition) : null;
   const reductionBlocked = isReduction && !isBuyoutReduction && !reductionPreview;
@@ -452,7 +461,35 @@ export function GuestCountReconciliationModal(
           <p className="mt-3 text-xs text-zinc-500">We can&apos;t confirm the original price for this booking. Check the payment details before adding guests. The price entered here applies only to the added guests.</p>
         </section>
       )}
-      {isReduction && !isBuyoutReduction && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
+      {isReduction && savedBasis?.componentConfirmationRequired && (
+        <section className="mt-4 rounded-xl border border-[#D8C36A]/30 p-4 text-sm text-zinc-200">
+          <h3 className="font-semibold text-[#F2D66C]">Confirm invoice breakdown</h3>
+          <p className="mt-2 text-xs text-zinc-400">Enter the agreed amounts for all {booking.guestCount} guests, including VAT where applicable. Enter 0 for any amount not charged. Together they must equal {formatMoney(booking.totalAmount)}. Payments and the agreed total will not change.</p>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {([
+              ["ticketAmount", "Tickets"], ["gratuityAmount", "Prepaid ticket gratuity"],
+              ["barTabAmount", "Prepaid bar credit"], ["otherAmount", "Other charges / fees"],
+            ] as const).map(([key, label]) => (
+              <label key={key} className="block text-xs text-zinc-400">{label} (R)
+                <input type="number" inputMode="decimal" min="0" step="0.01" required value={components[key]}
+                  onChange={event => setComponents(current => ({ ...current, [key]: event.target.value, confirmed: false }))}
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-black px-3 text-sm text-white outline-none focus:border-[#D8C36A]" />
+              </label>
+            ))}
+          </div>
+          <label className="mt-3 block text-xs text-zinc-400">Invoice / agreement reference
+            <input maxLength={500} value={components.sourceDocument} required
+              onChange={event => setComponents(current => ({ ...current, sourceDocument: event.target.value, confirmed: false }))}
+              className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-black px-3 text-sm text-white outline-none focus:border-[#D8C36A]" />
+          </label>
+          <label className="mt-3 flex min-h-11 items-center gap-3 text-xs text-zinc-300">
+            <input type="checkbox" checked={components.confirmed} onChange={event => setComponents(current => ({ ...current, confirmed: event.target.checked }))} />
+            I checked these amounts against the invoice or agreed breakdown.
+          </label>
+          {!confirmedBasis && <p className="mt-2 text-xs text-amber-200">Complete and confirm the breakdown to review the reduction.</p>}
+        </section>
+      )}
+      {isReduction && !isBuyoutReduction && !savedBasis?.componentConfirmationRequired && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
       {reductionPreview && (
         <section className="mt-4 rounded-xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
           <p className="text-xs font-semibold uppercase text-[#F2D66C]">Cancellation Allocation</p>
