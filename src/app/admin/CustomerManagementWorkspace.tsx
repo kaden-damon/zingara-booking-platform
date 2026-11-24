@@ -99,8 +99,8 @@ function customerName(customer: CustomerRow) {
   return [customer.first_name, customer.surname].filter(Boolean).join(" ");
 }
 
-function inputClass() {
-  return "min-h-11 w-full rounded-lg border border-white/15 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-[#D8C36A]/70";
+function inputClass(multiline = false) {
+  return `min-h-11 w-full ${multiline ? "rounded-lg" : "rounded-full"} border border-white/15 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-[#D8C36A]/70`;
 }
 
 function formatCurrency(value: number) {
@@ -114,11 +114,12 @@ function formatDateTime(value: string | null | undefined) {
 
 const vipOptions = ["VIP", "High Value", "Birthday Guest", "Wine Lover", "Corporate Host"];
 const customerActionClass = "min-h-11 rounded-full border border-white/15 px-4 text-sm font-semibold text-zinc-300 outline-none transition-colors enabled:hover:border-[#D8C36A]/60 enabled:hover:bg-[#D8C36A]/10 enabled:hover:text-[#F2D66C] enabled:active:bg-[#D8C36A]/20 focus-visible:ring-2 focus-visible:ring-[#D8C36A]/70 disabled:cursor-not-allowed disabled:opacity-35";
-const customerCheckboxClass = "h-5 w-5 shrink-0 cursor-pointer accent-[#D8C36A] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C36A]";
+const customerCheckboxClass = "h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-full border border-white/30 bg-black/35 accent-[#D8C36A] checked:border-[#D8C36A] checked:bg-[#D8C36A] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C36A] forced-colors:appearance-auto";
+const marketingConsentMessage = "No customers have verified marketing consent.";
 const exportFieldLabels: Partial<Record<CustomerExportColumn, string>> = {
-  value: "Booking value (ZAR)", recordedPaid: "Recorded paid (ZAR)",
-  payments: "Payment entries (ZAR)", netPayments: "Net payments (ZAR)",
-  unitemised: "Paid without payment entries (ZAR)",
+  value: "Booking value", recordedPaid: "Recorded paid",
+  payments: "Payment entries", netPayments: "Net payments",
+  unitemised: "Paid without payment entries",
 };
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -540,7 +541,11 @@ export default function CustomerManagementWorkspace({
       anchor.href = url; anchor.download = `Zingara_Customers_${new Date().toISOString().slice(0, 10)}.${format}`;
       document.body.appendChild(anchor); anchor.click(); anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (error) { setExportError(error instanceof Error ? error.message : "The customer export could not be generated."); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setExportError(error instanceof SupabaseApiError || /verified.*(?:marketing|consent)/i.test(message)
+        ? message : "Export failed. Please try again.");
+    }
     finally { setExporting(false); }
   }
 
@@ -570,10 +575,10 @@ export default function CustomerManagementWorkspace({
         </div>
         <fieldset><legend className="mb-2 text-xs font-semibold uppercase text-zinc-400">Columns</legend>
           <div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={() => setExportFields(Object.keys(customerExportColumns) as CustomerExportColumn[])} className={customerActionClass}>Select All Columns</button><button type="button" onClick={() => setExportFields([])} className={customerActionClass}>Clear Columns</button></div>
-          <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-3">{Object.entries(customerExportColumns).map(([key, label]) => <label key={key} title={label} className="flex min-h-11 items-center gap-3 py-1 text-sm text-zinc-300"><input type="checkbox" className={customerCheckboxClass} checked={exportFields.includes(key as CustomerExportColumn)} onChange={e => setExportFields(fields => e.target.checked ? [...fields, key as CustomerExportColumn] : fields.filter(f => f !== key))} />{exportFieldLabels[key as CustomerExportColumn] ?? label}</label>)}</div></fieldset>
-        <p className="text-xs leading-relaxed text-zinc-400">Uses the applied customer filters and matching performances, not payment dates. Booking value excludes cancelled/refunded bookings. Net payments are successful entries less accepted refunds. Historical paid amounts without entries stay separate.</p>
-        {exportFilters.marketing && <p className="text-xs text-amber-200">Unverified preferences are excluded. The current CRM has no verified email-marketing consent source; a marketing download may have no eligible contacts.</p>}
-        {exportError && <p role="alert" className="text-sm text-red-200">{exportError}</p>}
+          <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-3">{Object.entries(customerExportColumns).map(([key, label]) => <label key={key} title={label.replace(/ \(ZAR\)$/, "")} className="flex min-h-11 items-center gap-3 py-1 text-sm text-zinc-300"><input type="checkbox" className={customerCheckboxClass} checked={exportFields.includes(key as CustomerExportColumn)} onChange={e => setExportFields(fields => e.target.checked ? [...fields, key as CustomerExportColumn] : fields.filter(f => f !== key))} />{(exportFieldLabels[key as CustomerExportColumn] ?? label).replace(/ \(ZAR\)$/, "")}</label>)}</div></fieldset>
+        {exportFilters.marketing && !exportError && <p className="text-xs text-amber-200">{marketingConsentMessage}</p>}
+        {exportError && <p role="alert" className="text-sm text-red-200">{/verified.*(?:marketing|consent)/i.test(exportError) ? marketingConsentMessage : exportError}</p>}
+        {exporting && <p role="status" className="flex items-center gap-2 text-sm text-[#F2D66C]"><span aria-hidden="true" className="h-3 w-3 shrink-0 rounded-full border-2 border-[#D8C36A]/30 border-t-[#D8C36A] motion-safe:animate-spin" />Exporting customers…</p>}
         <div className="flex flex-wrap gap-3" aria-busy={exporting}>{(["xlsx", "csv"] as const).map(format => <button key={format} type="button" disabled={exporting || !exportFields.length || (exportSelected && !exportIds.length)} onClick={() => void downloadCustomers(format)} className="min-h-11 rounded-full bg-[#D8C36A] px-5 text-sm font-semibold text-black disabled:opacity-40 enabled:transition-colors enabled:hover:bg-[#F2D66C] enabled:active:bg-[#BCA74F] enabled:focus-visible:outline-2 enabled:focus-visible:outline-offset-2 enabled:focus-visible:outline-[#F2D66C]">{exporting ? "Exporting..." : format === "xlsx" ? "Download Excel" : "Download CSV"}</button>)}</div>
       </section>}
 
@@ -582,7 +587,7 @@ export default function CustomerManagementWorkspace({
         <section className="rounded-lg border border-white/10 bg-black/35 p-3">
           {exportOpen && canManage && <div aria-label="Customer export selection" className="mb-3 flex flex-wrap items-center gap-2 border-b border-white/10 pb-3"><button type="button" onClick={() => setExportIds(ids => [...new Set([...ids, ...rows.map(r => r.id)])])} className={customerActionClass}>Select This Page</button><button type="button" onClick={() => setExportIds([])} disabled={!exportIds.length} className={customerActionClass}>Clear selection</button><span aria-live="polite" className="text-sm text-zinc-400">{exportIds.length} selected</span></div>}
           {loading ? <p className="p-5 text-sm text-zinc-400">Loading customers...</p> : rows.length === 0 ? <p className="p-5 text-sm text-zinc-400">No customers match these filters.</p> : <div className="space-y-2">{rows.map((customer) => <div key={customer.id} className="flex items-center gap-3">{exportOpen && canManage && <input type="checkbox" aria-label={`Select ${customerName(customer)} for export`} checked={exportIds.includes(customer.id)} onChange={e => setExportIds(ids => e.target.checked ? [...new Set([...ids, customer.id])] : ids.filter(id => id !== customer.id))} className={customerCheckboxClass} />}<button type="button" onClick={() => void loadDetail(customer.id)} className={`min-w-0 flex-1 rounded-full border px-4 py-2.5 text-left transition-colors hover:bg-[#D8C36A]/10 active:bg-[#D8C36A]/20 focus-visible:outline-2 focus-visible:outline-[#D8C36A] ${selectedId === customer.id ? "border-[#D8C36A]/70 bg-[#211708]" : "border-white/10 bg-zinc-950 hover:border-[#D8C36A]/40"}`}><p className="font-semibold text-white">{customerName(customer)}</p></button></div>)}</div>}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)} className={customerActionClass}>Previous</button><span className="text-center text-zinc-400">Page {page} of {pageCount}<br />{total} customers</span><button type="button" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)} className={customerActionClass}>Next</button></div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)} className={customerActionClass}>Previous</button><span className="order-first w-full whitespace-nowrap text-center text-[0.6875rem] text-zinc-400 sm:order-none sm:w-auto">{page.toLocaleString("en-US")} of {pageCount.toLocaleString("en-US")} · {total.toLocaleString("en-US")} customers</span><button type="button" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)} className={customerActionClass}>Next</button></div>
         </section>
 
         <section className="min-w-0 rounded-lg border border-white/10 bg-black/35 p-4">
@@ -618,7 +623,7 @@ export default function CustomerManagementWorkspace({
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               <section className="border-t border-white/10 pt-4">
                 <h4 className="text-sm font-bold uppercase text-zinc-400">Relationship Notes & VIP</h4>
-                <textarea aria-label="Relationship notes" value={notesDraft} disabled={!canManage} onChange={(event) => setNotesDraft(event.target.value)} className={`${inputClass()} mt-3 min-h-24 py-3`} placeholder="Guest preferences, service notes, allergies, or relationship context." />
+                <textarea aria-label="Relationship notes" value={notesDraft} disabled={!canManage} onChange={(event) => setNotesDraft(event.target.value)} className={`${inputClass(true)} mt-3 min-h-24 py-3`} placeholder="Guest preferences, service notes, allergies, or relationship context." />
                 <div className="mt-3 flex flex-wrap gap-2">{vipOptions.map((tag) => <button key={tag} type="button" disabled={!canManage} onClick={() => setVipDraft((current) => current.includes(tag) ? current.filter((value) => value !== tag) : [...current, tag])} className={`min-h-9 rounded-full border px-3 text-xs font-semibold ${vipDraft.includes(tag) ? "border-[#D8C36A] bg-[#D8C36A] text-black" : "border-white/15 text-zinc-300"}`}>{tag}</button>)}</div>
                 {canManage && <button type="button" disabled={saving} onClick={() => void saveCrm()} className="mt-3 min-h-10 rounded-lg bg-[#D8C36A] px-4 text-sm font-bold text-black disabled:opacity-40">Save CRM Notes</button>}
               </section>

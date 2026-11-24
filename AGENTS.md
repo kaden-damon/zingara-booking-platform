@@ -24,6 +24,11 @@ subject to higher-priority instructions. Read `.codex/README.md`,
   and keyboard-focus feedback, spacing and responsive layouts. Inspect existing
   examples first; extend a shared component only when necessary. Do not introduce
   generic browser styling or duplicate components when a Zingara equivalent exists.
+- Customer/export checkboxes must be circular with gold selected states, retaining
+  native checkbox semantics and keyboard/focus accessibility. Search fields and
+  dropdowns use fully rounded pill styling. Keep UI wording minimal: omit redundant
+  explanations and units, use concise status messages and compact single-line
+  pagination without changing underlying data, financial meaning or safeguards.
 - For a regression, compare the previous working version with the current one
   before designing a correction. Recover previous findings and release evidence.
 - New workflows or controls require demonstrated necessity AND explicit user

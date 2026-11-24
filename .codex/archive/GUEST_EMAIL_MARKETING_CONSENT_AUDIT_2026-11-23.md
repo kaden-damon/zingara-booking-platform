@@ -384,3 +384,43 @@ Reference: https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serv
   No Production customer export or data change. Frontend 2.0 untouched.
 - Private evidence: local-evidence/customer-export-ux-browser-results.json and
   customer-export-ux-320.png / customer-export-ux-1280.png. Prior proofs preserved.
+- Commit f9aa921222d38fa93a999ceb6d4b801c6b5d72ed pushed to Main; Vercel
+  dpl_E7YCLzj79951oZRZi7bPzhFQNWfr READY, exact SHA/Production alias verified
+  24 November 14:11 SAST. Live /admin 200; 18lb6s7bnj140.js includes revised
+  selection/column controls and branded calendar triggers. Export POST without
+  staff authentication remains 401. AGENTS UI doctrine included in deployed SHA.
+  No actual customer export or Production data modification for QA. Evidence:
+  local-evidence/customer-export-ux-production-release.json. Final Markdown proof
+  recorded locally without another redundant application deployment.
+
+## Final Customers Export UX And Loading — 24 November 2026
+
+- Presentation only. Existing checkbox class extended to circular gold states,
+  preserving type=checkbox, labels, native keyboard toggling, visible focus and
+  forced-colour fallback. Existing input styling now uses pill corners for inputs
+  and dropdowns; multiline relationship notes retain rounded panel corners.
+- Removed financial explanatory paragraph. UI column labels/tooltips omit (ZAR);
+  file headers, currency values and all aggregation remain unchanged. Marketing
+  notice and no-consent error display exactly: No customers have verified marketing
+  consent. Permission/validation errors retain their actionable server messages.
+- Pagination is smaller, single-line and thousands-separated, e.g.
+  1 of 1,286 · 12,860 customers. On narrow screens its text has its own line above
+  Previous/Next so neither text nor controls clip. No data/pagination changes.
+- User's same-task loading addition reuses exporting state and existing branded
+  motion-safe ring styling. Clicking either download immediately shows Exporting
+  customers… in role=status. Both buttons use their existing disabled condition;
+  duplicate clicks cannot submit. Existing finally clears busy on success/failure.
+  Unexpected client errors display Export failed. Please try again. Existing
+  consent and permission safeguards are not altered by message presentation.
+- AGENTS.md permanently records circular gold checkboxes, pill search/dropdowns
+  and minimal wording/single-line pagination, without changing financial meaning.
+- Six focused presentation tests, TypeScript and lint pass. Actual synthetic UI
+  at 320/1280px verifies circle appearance/gold fill, checkbox Space toggling,
+  pill radius, requested 12,860 total formatting, removed paragraph/units, concise
+  consent notice once, immediate spinner/status, both disabled download controls,
+  duplicate prevention, complete state recovery and no overflow/errors. Existing
+  backend/full-export evidence reused; no additional backend testing or queries.
+- No server, financial, permission, deduplication, migration, dependency or API
+  changes. No Production customer export/data change. Frontend 2.0 untouched.
+  Private evidence: local-evidence/customer-export-final-ux-browser-results.json
+  and customer-export-final-ux-320.png / customer-export-final-ux-1280.png.
