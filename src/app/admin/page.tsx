@@ -1,5 +1,4 @@
 "use client";
-import { FloorBookingLimits } from "@/components/FloorBookingLimits";
 import { canEditFloorCapacitySession, getSeatingBookingLimit } from "@/lib/seatingBookingLimits";
 
 import { createCsvFromSheet, escapeCsvValue } from "@/lib/exports/csv";
@@ -36568,14 +36567,6 @@ export default function AdminDashboardPage({
                 </div>
               </div>
 
-              {canEditFloorCapacity && selectedShow && (
-                <FloorBookingLimits
-                  key={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName)}
-                  venue={normalizeShowLocation(selectedShow.location ?? selectedShow.venueName) === "johannesburg" ? "johannesburg" : "cape-town"}
-                  settings={venueSettings}
-                  onSaved={setVenueSettings}
-                />
-              )}
               <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-zinc-300 md:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">

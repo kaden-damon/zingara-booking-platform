@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
-import { canEditFloorCapacitySession, canEditSeatingBookingLimits, floorCapacityAccessMessage, validateSeatingBookingLimit } from "./seatingBookingLimits";
+import { canEditFloorCapacitySession, canEditSeatingBookingLimits, floorCapacityAccessMessage } from "./seatingBookingLimits";
 import { getPhysicalTableDefinition } from "./physicalTables";
 import { isValidSeatingZoneId } from "./zingaraDemo";
 
@@ -32,37 +32,19 @@ test("real session serializer preserves auth identity and exposes the correct pr
   assert.equal(canEditFloorCapacitySession({}),false);
 });
 
-function limitsFixture(id: string, active=true) {
-  const calls: Array<Record<string, unknown>>=[];
-  const settings: Record<string, Record<string, unknown>>={};
-  const put=handler("src/app/api/admin/venue-settings/route.ts","PUT",{
-    requireActiveStaff:async()=>({error:null,staffProfile:{id,active},user:{id:"auth-identity"},serviceClient:{rpc:async(name:string,args:Record<string,unknown>)=>{
-      calls.push({name,...args}); const venue=String(args.p_venue),zone=String(args.p_zone);
-      settings[venue]??={};settings[venue][zone]={minGuests:args.p_minimum,maxGuests:args.p_maximum};return {error:null};
-    }}}),canEditSeatingBookingLimits,validateSeatingBookingLimit,loadVenueSettings:async()=>({bookingLimits:settings}),
-  });
-  return {calls,settings,put:async(venue:string,zone:string,minGuests=6,maxGuests=8)=>await put(new Request("http://local/api/admin/venue-settings",{method:"PUT",body:JSON.stringify({bookingLimit:{venue,zone,limit:{minGuests,maxGuests}}})})) as Response};
-}
-
-test("actual settings PUT saves all four zones at both venues for Kaden and Fatima", async()=>{
-  for(const id of editors) {
-    const fixture=limitsFixture(id);
+test("retired zone-wide saves reject all staff without accessing settings or writing", async()=>{
+  for(const id of [...editors,"other-staff"]) {
+    const put=handler("src/app/api/admin/venue-settings/route.ts","PUT",{
+      requireActiveStaff:async()=>({error:null,staffProfile:{id,active:true},serviceClient:{}}),
+    });
     for(const venue of ["cape-town","johannesburg"])for(const zone of ["golden-circle","middle-ring","royal-booths","royal-balcony"]) {
-      const response=await fixture.put(venue,zone);assert.equal(response.status,200);
-      assert.equal(fixture.calls.at(-1)?.p_actor_staff_profile_id,id);
-      assert.equal(fixture.calls.at(-1)?.p_actor_auth_user_id,"auth-identity");
-      assert.deepEqual(fixture.settings[venue][zone],{minGuests:6,maxGuests:8});
+      const response=await put(new Request("http://local/api/admin/venue-settings",{method:"PUT",body:JSON.stringify({bookingLimit:{venue,zone,limit:{minGuests:6,maxGuests:8}}})})) as Response;
+      assert.equal(response.status,400);
     }
-    assert.equal(fixture.calls.length,8);
   }
-});
-
-test("actual settings PUT rejects other staff, inactive editors and invalid limits before any save", async()=>{
-  for(const [id,active] of [["other-staff",true],[editors[0],false]] as const) {
-    const fixture=limitsFixture(id,active);assert.equal((await fixture.put("cape-town","royal-booths")).status,403);assert.equal(fixture.calls.length,0);
-  }
-  const fixture=limitsFixture(editors[0]);
-  assert.equal((await fixture.put("cape-town","royal-booths",6,9)).status,400);assert.equal(fixture.calls.length,0);
+  const source=readFileSync("src/app/api/admin/venue-settings/route.ts","utf8");
+  assert.doesNotMatch(source,/set_seating_booking_limits/);
+  assert.match(source,/settings\.bookingLimits = previousSettings\?\.bookingLimits/);
 });
 
 function tableFixture(id: string, venue="cape-town", temporary=false, assignedGuests=0) {
@@ -112,10 +94,11 @@ test("restored editor preserves physical bounds and assigned-booking safeguards"
   const assigned=tableFixture(editors[0],"cape-town",false,7);assert.equal((await assigned.post("set-capacity",6)).status,409);assert.equal(assigned.writes.length,0);
 });
 
-test("Floor renders both controls and capacity-plan APIs enforce the same restriction",()=>{
+test("Floor retains table controls without the zone-wide editor; capacity permissions remain",()=>{
   const page=readFileSync("src/app/admin/page.tsx","utf8");
   assert.match(page,/canEditFloorCapacitySession\(currentStaff\)/);
-  assert.match(page,/canEditFloorCapacity && selectedShow/);
+  assert.doesNotMatch(page,/FloorBookingLimits|Seating Limits|Booking sizes/);
+  assert.match(page,/Save table seats/);
   assert.match(page,/\{table\.physicalTable && physicalDefinition \? \(/);
   assert.doesNotMatch(page,/\{boothBookingLimit \? \(\s*<p/);
   for(const path of ["src/app/api/admin/floor-plan/route.ts","src/app/api/admin/floor-capacity-plan/route.ts"])assert.match(readFileSync(path,"utf8"),/!canEditSeatingBookingLimits\(auth\.staffProfile\)/);

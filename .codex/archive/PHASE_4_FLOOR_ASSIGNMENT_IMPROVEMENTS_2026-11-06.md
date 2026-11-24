@@ -246,3 +246,55 @@ text fit. Screenshot inspected. APIs mocked; no physical iPhone/live staff write
 Existing server permissions, original seat editors, all business rules, bookings,
 assignments, authorised temporary seating and Frontend2.0 preserved. Release
 pending; evidence local-evidence/seating-limits-browser-results.json/screenshots.
+
+Initial code release e369c48 / dpl_yFBFaFbznKjSTKCX89qJ7Jki5ALQ did not promote:
+compilation/TypeScript passed, but the existing largest initial Admin gzip-chunk
+budget failed170115/170000 bytes. Aggregate319229/320000 and raw1312362/1320000
+passed. Scoped correction uses the existing next/dynamic named-export pattern to
+load this restricted Floor-only widget on demand. Budgets remain unchanged; no
+unrelated PDF tracing-warning refactor. Exact Production build/gate being checked.
+
+## Interrupted-Task Production Stability Check — 24 November 2026
+
+Actual live alias: READY d0da167 / dpl_8BCv2zaSZ2GNTduyJafKohLHCYhc. Main e369c48
+failed its Admin bundle budget and was not promoted. Uncommitted lazy-load/test/
+record work preserved; local Turbopack cannot bind its PostCSS worker port in the
+managed environment. No prior build/verification processes remain running.
+
+Public booking page/show list/settings respond200;59 future performances span
+both venues. No availability GET or checkout submission: availability GET invokes
+hold cleanup. Used a bounded READ ONLY transaction for both venues/four zones.
+Permanent public caps120/125/138/32 total415; PB6–8; GC/MR/RB Standard1–19 remains
+the original booking rule, distinct from individual table capacity. Authorised
+temporary/legacy operational capacity and staff-closed zones remain separate.
+
+Sampled CPT26 November18:00/JHB25 November17:00:53 assigned active bookings,
+zero compatibility failures and zero orphaned active claims. Ten unconfigured
+table rows are all unclaimed and last updated25 August, not introduced by the
+recent releases. No automatic data corrections. Forty checkout-validation,
+eligibility and allocation tests pass on domain code identical to live d0da167.
+
+No new Production regression found in checked scope. No application/Production
+changes, new commit, deployment, real booking/payment/seating or communications
+action during this check. No physical-device or completed-payment claim. Preserve
+Frontend2.0. Remaining work is the unreleased UI cleanup/performance gate plus
+pre-existing unconfigured inventory review, not an active Production outage.
+Evidence: local-evidence/production-stability-readonly-2026-11-24.json.
+
+## Seating Stabilisation — 24 November 2026
+
+User explicitly retires the zone-wide editor, superseding the earlier cleanup.
+Removed FloorBookingLimits component/import/render and its venue-settings RPC
+save path. Stale bookingLimit requests return400 without writes; ordinary venue
+settings saves retain the protected limits. No settings/database migration or
+business-row edits. Existing restricted table-seat controls/permissions, PB6-8,
+23 booths per venue, effective fits and public caps120/125/138/32 remain intact.
+
+Sixteen focused regression tests, TypeScript, changed-file lint and optimised
+Webpack build pass. Reused prior40 checkout/allocator tests and53 compatible
+Production assignments. Local Turbopack worker port restriction persists; clean
+Vercel build and unchanged performance budgets remain mandatory release gates.
+Before-state checkpoint: /private/tmp/zingara-seating-stabilisation-before-20261124.tgz.
+Main's failed e369c48 and pending lazy-loading work reconciled selectively through
+editor removal, not blind revert; historical records/evidence preserved. No
+Frontend2.0, bookings, payments, table claims or communication changes.
