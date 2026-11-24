@@ -262,7 +262,7 @@ a future authorised release or approved non-deploying main-update mechanism.
 
 ## Authorised Custom Customer Export — 24 November 2026
 
-Status: implemented and targeted verification complete; release in progress.
+Status: released to Production / READY; live assets and authentication verified.
 
 - User explicitly authorised one Export panel within Customers. Reused current
   component, search/archive filters, customer-management POST, staff auth, venue
@@ -333,3 +333,54 @@ Release hardening: native ReadableStream response chunks avoid buffered function
 download limits without public storage or another service. Actual POST test also
 reconstructs a 6,000,018-byte UTF-8 CSV; XLSX uses the same binary response path.
 Reference: https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serverless-functions
+
+### Customer Export Release Evidence
+
+- Implementation commit 993df84; final download hardening
+  4e42a15a811a52286db857262abb9a17056fceae pushed to Main. Doctrine/audit parent
+  251d7e138051cd2fe151dc26331f81be32976594 is now included in Main and deployment.
+- Vercel Production dpl_4Wz8HgeZZXJi9jrWP1PUjV3Bxfsb READY, exact final SHA and
+  book.zingara.co.za alias verified 24 November 2026 at 13:42 SAST. Live Admin
+  200; served /_next/static/immutable/chunks/0wm-22-enjs4o.js contains the Export
+  panel/download/selection controls. Unauthenticated export POST returns 401.
+- Search function hash 981dd54f0a581404c82555b9fd501915; migration 20261124150000
+  recorded once, service-role-only execution retained. Original definition and
+  synthetic SQL evidence retained privately; no Production customer rows changed.
+- Final 35 focused tests pass, actual POST streaming includes a complete 6 MB
+  Unicode payload, TypeScript/lint pass, local optimised build passed and final
+  Vercel optimised build READY. Mobile/desktop synthetic UI evidence retained.
+- No real customer list downloaded, live financial/customer changes, customer
+  communications, consent backfill, marketing enrolment or external integration.
+  Authenticated live download not claimed. Current marketing source limitation
+  remains explicit; general exports work independently of marketing eligibility.
+- Release proof: local-evidence/customer-export-production-release.json;
+  database proof: local-evidence/customer-export-production-db.json.
+  Unrelated local work/checkpoints and Frontend 2.0 preserved. Post-release
+  CURRENT_TASK/archive evidence updated locally without a redundant docs deployment.
+
+## Customer Export Presentation Cleanup — 24 November 2026
+
+- Presentation-only extension of the released Customers component. Reused
+  ZingaraDatePicker twice for the existing Reports-style from/to date range;
+  removed native date inputs. No new calendar/component or date-filter rules.
+- Reused gold accent checkbox styling and existing pill/hover/focus colours;
+  added pressed/loading feedback. Download disabled condition, default style,
+  opacity and click handler unchanged; new visual selectors apply only enabled.
+- Select This Page replaces Select visible. Page selection, clear and selected
+  count moved directly above the customer list. Select All Columns and Clear
+  Columns added within the existing field picker. Financial labels shortened
+  in UI only, retaining original export headers/meaning and explanatory context.
+- AGENTS.md now mandates design-system reuse for every future UI change:
+  buttons, branded calendars/ranges, gold checks, hover/pressed/loading/focus,
+  spacing and responsive layout; no generic substitutes/duplicate components.
+- Four focused presentation tests plus twelve existing export tests pass,
+  including complete 1,201-row All Matching loader test. Actual UI synthetic
+  Chromium 320/1280px passes branded range payloads, gold checkbox computed
+  colour, all/clear columns, control placement, hover/pressed colour changes,
+  cross-page selection and All Matching selectedIds=null, no extra data requests
+  on open/date selection and no overflow/errors. 320px screenshot inspected.
+- TypeScript and focused lint pass. Export handler byte-compared unchanged;
+  no server/library/migration changes, permissions/money/dedup untouched.
+  No Production customer export or data change. Frontend 2.0 untouched.
+- Private evidence: local-evidence/customer-export-ux-browser-results.json and
+  customer-export-ux-320.png / customer-export-ux-1280.png. Prior proofs preserved.

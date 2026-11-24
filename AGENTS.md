@@ -19,6 +19,11 @@ subject to higher-priority instructions. Read `.codex/README.md`,
 - Reuse, restore or extend the existing workflow FIRST. Never introduce duplicate
   controls, APIs, calculations, components or business logic. Preserve necessary
   server-side validation; client checks are not an authoritative safeguard.
+- Every UI change MUST reuse Zingara's existing design system and components:
+  branded buttons, calendars/date ranges, gold checkboxes, hover/pressed/loading
+  and keyboard-focus feedback, spacing and responsive layouts. Inspect existing
+  examples first; extend a shared component only when necessary. Do not introduce
+  generic browser styling or duplicate components when a Zingara equivalent exists.
 - For a regression, compare the previous working version with the current one
   before designing a correction. Recover previous findings and release evidence.
 - New workflows or controls require demonstrated necessity AND explicit user
