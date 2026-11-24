@@ -22,7 +22,7 @@ test("actual export POST enforces auth/field/scope validation and returns privat
     "@/lib/supabase/customerExportServer": { loadCustomerExportRows: async (_: unknown, options: policy.CustomerExportOptions, venues: string[]) => {
       loads++; policy.customerExportVenues(venues, options.venue);
       if (options.marketing) throw new policy.CustomerExportError("No verified email-marketing consent.", 404);
-      return [{ "Customer name": "Synthetic guest" }];
+      return [{ "Customer name": options.search === "large-fixture" ? "é".repeat(3_000_000) : "Synthetic guest" }];
     } },
     "@/lib/exports/csv": csv,
     "@/lib/exports/bookingsWorkbook": { buildTabularWorkbook },
@@ -42,6 +42,8 @@ test("actual export POST enforces auth/field/scope validation and returns privat
   assert.equal(result.headers.get("Cache-Control"), "private, no-store"); assert.match(await result.text(), /Customer name\r\nSynthetic guest/);
   const excel = await post({ format: "xlsx" }); assert.equal(excel.status, 200);
   assert.match(excel.headers.get("Content-Type")!, /spreadsheetml/); assert.ok((await excel.arrayBuffer()).byteLength > 1000);
+  const large = await post({ search: "large-fixture" });
+  assert.equal(large.status, 200); assert.equal((await large.arrayBuffer()).byteLength, 6_000_018);
   permissions = ["bookings:manage", "crm:read", "communications:manage"];
-  assert.equal((await post({ marketing: true })).status, 404); assert.equal(audits, 2);
+  assert.equal((await post({ marketing: true })).status, 404); assert.equal(audits, 3);
 });

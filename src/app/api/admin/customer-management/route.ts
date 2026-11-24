@@ -516,7 +516,14 @@ export async function POST(request: Request) {
           performance_from: options.from, performance_to: options.to, kind: options.kind, format: options.format,
           selected_count: options.selectedIds?.length ?? null, marketing: options.marketing },
       });
-      return new Response(bytes as BodyInit, { headers: {
+      // Stream native response chunks instead of hitting buffered download limits.
+      let offset = 0;
+      const stream = new ReadableStream<Uint8Array>({ pull(controller) {
+        if (offset >= bytes.byteLength) { controller.close(); return; }
+        const end = Math.min(offset + 64 * 1024, bytes.byteLength);
+        controller.enqueue(bytes.subarray(offset, end)); offset = end;
+      } });
+      return new Response(stream, { headers: {
         "Cache-Control": "private, no-store",
         "Content-Type": options.format === "csv" ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="Zingara_Customers_${exportedAt.slice(0, 10)}.${options.format}"`,

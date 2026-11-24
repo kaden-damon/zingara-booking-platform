@@ -328,3 +328,8 @@ Staff: Customers -> apply search/status -> Export -> choose columns and performa
 filters -> All matching or select customers across pages -> Download Excel/CSV.
 Marketing export remains intentionally unavailable until real consent evidence
 can be verified. General CRM exports must not be treated as consented audiences.
+
+Release hardening: native ReadableStream response chunks avoid buffered function
+download limits without public storage or another service. Actual POST test also
+reconstructs a 6,000,018-byte UTF-8 CSV; XLSX uses the same binary response path.
+Reference: https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serverless-functions
