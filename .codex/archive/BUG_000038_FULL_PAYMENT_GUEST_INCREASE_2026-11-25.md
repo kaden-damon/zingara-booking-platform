@@ -1,6 +1,6 @@
 # BUG-000038: Full-Payment Guest Increase
 
-Date: 25 November 2026. Status: verified correction installed; release in progress.
+Date: 25 November 2026. Status: released / READY; functional correction verified.
 
 ## Confirmed Cause And Impact
 
@@ -76,7 +76,18 @@ unpaid ticket creation remains rejected. No side-channel to bypass payment.
 ## Release And Retry
 
 Pending governance commit624b31f is expressly authorised in this release.
-Application release evidence and issue completion follow after Vercel READY.
+Commit65a5d15cc6dde71bbbce39036c62ac8640ae4848 pushed to Main with624b31f.
+Vercel dpl_9kJxC18dVWEejT7tCZ1R1NzmjvEn READY; exact-SHA list and actual live alias
+verified25Nov. Clean build/performance gates pass: raw1309326/1320000,
+gzip318165/320000, largest gzip169055/170000. Live /admin,/book200;
+unauthenticated reconciliation POST401. No unrelated runtime/UI application change.
+Golden Circle snapshot83 active guests/120 public,125 operational accommodates
+the proposed two guests. Only BUG-000038 matched the bounded related issue query;
+do not infer other distinct booking references from generic error logs.
+Issue completion records explicit System maintenance audit/release evidence,
+without impersonating Fatima/Kaden or sending notification email. Customer booking
+was never amended for QA. Final Markdown verification evidence retained locally
+for next authorised release, avoiding a redundant records-only deployment.
 Fatima should reopen the latest booking, use existing Edit Guest Count and
 review3->5/additionalR3880 before saving. Do not resubmit a stale form. Existing
 availability/capacity/lock rules still apply. New tickets wait for full balance

@@ -1,6 +1,6 @@
 # BUG-000038: Full-Payment Guest Increase
 
-STATUS: CORRECTION VERIFIED/INSTALLED; RELEASE IN PROGRESS
+STATUS: RELEASED / READY; INSTALLED FUNCTIONAL CORRECTION VERIFIED
 
 DATE: 25 NOVEMBER 2026
 
@@ -29,6 +29,21 @@ DATE: 25 NOVEMBER 2026
   release. No role-review/security remediation or Frontend2.0 changes included.
   Full evidence/rollback: archive/BUG_000038_FULL_PAYMENT_GUEST_INCREASE_2026-11-25.md
   and private local-evidence/bug38-*.
+- Release65a5d15cc6dde71bbbce39036c62ac8640ae4848 includes624b31f governance;
+  dpl_9kJxC18dVWEejT7tCZ1R1NzmjvEn READY, exact-SHA deployment/live alias verified.
+  Clean Vercel build passes unchanged raw1309326/gzip318165/largest169055 budgets.
+  Live /admin and /book200; unauthenticated reconciliation POST401. Safe installed
+  SQL fixture supplies actual amendment/settlement evidence, not merely assets.
+- Current capacity query permits the additional two at snapshot (Golden Circle
+ 83 entitled/120 public,125 operational). Existing locked validations still apply.
+  Only BUG-000038 reported this generic failure in bounded issue query; no distinct
+  references can be inferred from11 error logs. Fatima can reopen/review and retry.
+- Final verification notes retained locally for the next authorised release;
+  no redundant Markdown-only deployment. No genuine customer save claimed.
+- BUG-000038 marked completed25Nov14:51 SAST with appended release/retry notes
+  and explicit System maintenance audit; reporter/original evidence preserved,
+  no completion email sent. ZNG-86Q76S not manually amended. Private compact
+  release evidence: local-evidence/bug38-production-release.json.
 
 ---
 
