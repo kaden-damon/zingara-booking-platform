@@ -1,4 +1,38 @@
-# Project Context Reconciliation And Permanent Governance
+# BUG-000038: Full-Payment Guest Increase
+
+STATUS: CORRECTION VERIFIED/INSTALLED; RELEASE IN PROGRESS
+
+DATE: 25 NOVEMBER 2026
+
+- ZNG-86Q76S: Fatima's3-to5 amendment failed14:07:52 SAST with actual SQL error
+  FULL_PAYMENT_REQUIRED_BEFORE_TICKET_ISSUANCE. NYE CPT31Dec, Golden Circle506;
+  original3 guests/R5820 paid/R0 outstanding/3 valid individual tickets unchanged.
+- Existing guest-increase trigger attempted to issue extra tickets after the
+  amendment correctly created an additional R3880 obligation. NYE full-payment
+  ticket guard rejected this, rolling back the whole amendment. Not a reduction,
+  cancellation-policy defect or missing November12 payment-link wrapper.
+- Scoped migration20261125143000 reuses existing ticket-population reconciliation:
+  defer unpaid full-payment-only extra entitlements; reconcile after full settlement
+  of an active non-archived booking. Original tickets/QRs remain; standard flow,
+  money calculations, payment/lock/revision/capacity and ticket security unchanged.
+- Forty-six targeted tests, TypeScript/lint pass. Actual installed SQL and original
+  SQL exercised only with session-temporary tables and rollback: old500 reproduced,
+  guarded failures atomic,5 guests/R9700 total/R5820 paid/R3880 balance, same table,
+  three tickets until settlement then five once, no duplicate/cancelled reissue.
+- Read-only observed scope:11 same errors in bounded24-hour route logs, not11
+  proven distinct bookings;19 current full-only native per-guest bookings susceptible.
+  Fourteen-day exact-message query timed out; no exhaustive historical count claimed.
+- Migration applied/recorded alone. Real booking/payment/ticket/table hashes and
+  original payment guards/population/amendment hashes verified unchanged. No
+  financial/customer communications, real amendment, payment or seating QA.
+- Pending documentation commit624b31f explicitly included in this authorised
+  release. No role-review/security remediation or Frontend2.0 changes included.
+  Full evidence/rollback: archive/BUG_000038_FULL_PAYMENT_GUEST_INCREASE_2026-11-25.md
+  and private local-evidence/bug38-*.
+
+---
+
+# Project Context Reconciliation And Permanent Governance (Completed)
 
 STATUS: DOCUMENTATION RECONCILED; NO APPLICATION OR PRODUCTION CHANGES
 
