@@ -65,6 +65,12 @@ superseding baseline). Read `.codex/README.md` and `.codex/CURRENT_TASK.md` firs
 14. Completion means the requested outcome is achieved and appropriately verified.
     Better wording is not a fix for a blocked workflow. Do not mark unknown or
     historically unresolved cases resolved merely because code was deployed.
+15. All staff-facing bug resolution notes MUST be extremely short and simple:
+    no more than three short sentences in plain, everyday English explaining
+    what went wrong, what was fixed and any action the staff member needs to take.
+    Exclude technical terminology, test results, commit references and deployment
+    details. Keep detailed technical findings in the existing internal Markdown
+    records. This applies to every future bug resolution.
 
 Frontend 2.0 / Phase 50.9 remains strictly isolated: do not modify, merge, deploy
 or connect it to live services without explicit approval. Staff two-factor

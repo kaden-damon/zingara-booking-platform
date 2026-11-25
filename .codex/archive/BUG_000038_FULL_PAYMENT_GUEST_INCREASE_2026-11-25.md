@@ -100,3 +100,14 @@ Rollback: restore original hook and its guest_count-only trigger definition
 from the before evidence; no booking/payment/ticket data rollback. This restores
 the old operational failure, not an alternative ticket-policy bypass.
 Frontend2.0 and unrelated work/checkpoints remain untouched.
+
+## Staff-Facing Notes Standard — 25 November 2026
+
+User explicitly requests concise staff resolution notes and permanent AGENTS
+rule15. Detailed findings above remain internal; prior notes remain in audit
+history. Only the issue's current resolution notes are replaced, without changing
+its completed status or sending communications. Approved staff-facing wording:
+
+Adding guests failed because new tickets were being created before payment.
+This is fixed, with extra tickets available after full payment.
+Reopen the booking and try again.

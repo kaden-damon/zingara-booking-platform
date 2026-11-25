@@ -45,6 +45,15 @@ DATE: 25 NOVEMBER 2026
   no completion email sent. ZNG-86Q76S not manually amended. Private compact
   release evidence: local-evidence/bug38-production-release.json.
 
+## Staff-Facing Resolution Notes Follow-Up
+
+-25 November: user requires all future staff-facing bug resolutions to use at
+  most three short everyday-English sentences: cause, fix and staff action; no
+  technical terms, test results or release references. Recorded in AGENTS rule15.
+- BUG-000038 resolution text shortened under explicit authority; technical
+  findings retained in its existing internal archive and immutable audit history.
+  No status, booking, payment, permission or application changes/deployment.
+
 ---
 
 # Project Context Reconciliation And Permanent Governance (Completed)
