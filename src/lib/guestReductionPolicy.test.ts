@@ -8,7 +8,7 @@ import { calculateTablePlanFinancialBreakdown } from "./exports/tablePlanFinance
 
 const basis: GuestReductionBasis = {
   bookingKind: "corporate", guestCount: 80, ticketAmount: 123200,
-  gratuityAmount: 15400, barTabAmount: 0, otherAmount: 0, totalAmount: 138600,
+  gratuityAmount: 15400, barTabAmount: 0, otherAmount: 0, totalAmount: 138600, amountPaid: 138600,
   performanceDate: "2026-12-12", performanceTime: "17:00:00", blockedReason: null,
 };
 const early = new Date("2026-12-05T15:00:00Z");
@@ -39,7 +39,7 @@ test("Corporate exact cutoff retains eligible refund treatment, never moves grat
 });
 
 test("Standard exact five-day cutoff and one second late use R550 per cancelled guest", () => {
-  const b={...basis,bookingKind:"standard" as const,guestCount:10,ticketAmount:12500,gratuityAmount:0,totalAmount:12500};
+  const b={...basis,bookingKind:"standard" as const,guestCount:10,ticketAmount:12500,gratuityAmount:0,totalAmount:12500,amountPaid:12500};
   const a=previewGuestReduction(b,8,"review-refund",new Date("2026-12-07T15:00:00Z"))!;
   const l=previewGuestReduction(b,8,"bar-credit",new Date("2026-12-07T15:00:01Z"))!;
   assert.equal(a.forfeitedAmount,0);

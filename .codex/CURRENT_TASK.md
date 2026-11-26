@@ -1,3 +1,48 @@
+# Unpaid Corporate Guest Reduction: Meditech
+
+STATUS: LOCAL FIX VERIFIED; RELEASE/INSTALLED VERIFICATION IN PROGRESS
+
+DATE: 26 NOVEMBER 2026
+
+- Supplied ZNG-7AUTMY actually JHB17Dec12GC/R20790 unpaid, not February group.
+  Matching27Feb2027 JHB group: ZNG-YHKCS7 PB60, ZNG-LVGP5J GC120, ZNG-B8UKFZ
+  MR120. No payment rows for any; no issued invoices as reported, not independently
+  inferred from the Corporate invoice-outstanding booking-creation event.
+- Original PB R86400 tickets/R10800 gratuity/R97200 unpaid. Vanessa changed total
+  to32400 at12:33:53 SAST, leaving guests60 and fee10800. Current ticket basis21600;
+  proportional reduction NOW would yield10800, not intended32400. No silent price
+  repair. Staff must reconcile original/current quote in existing financial controls
+  before reducing. Actual four reference/group bookings/payments/tickets untouched.
+- Reported64800 refund exactly reproduces pre-BUG39 all-paid preview; fresh current
+  source/installed basis amountPaid0 gives0 refund. Three409 requests12:22/12:29/
+  12:35 on1d92065 verified. No captured browser payload/version proves why old
+  calculation displayed. Stale form/client consistent, not conclusively established;
+  later manual pricing change legitimately invalidates an earlier financial preview.
+- Reuse shared preview/modal/API/policy wrapper. Remove optional-paid-as-fully-paid
+  fallback, fail closed for unknown paid evidence. Hide irrelevant unpaid controls,
+  canonicalise hidden stale disposition; server accepts no allocation choice for
+  unpaid early reductions only. Preserve paid allocations, cutoffs, locks/versions,
+  venue permissions, idempotency, Buyouts and atomic delegates.
+- Confirmed SQL defect: allocation gratuity correct but native unpaid subtotal/fee
+  columns and embedded fee stale. Function-only hash-guarded20261126140000 syncs
+  future early unpaid components and explicitly rejects credit against paid0.
+  No historical row, schema/grant, receipt, ticket or capacity changes.
+-85 focused tests pass; TypeScript/targeted lint pass. Original exact authenticated
+  actual-modal fixture60->20 saves/replays/reopens R32400 outstanding/paid0,
+  ticket28800/gratuity3600 in allocation AND columns/metadata; no allocation choice
+  or refund/credit. Existing checkout fee10 gives link32410, not booking revenue.
+  Screens390/1280 and401/403 verified. All10 existing patched-SQL authenticated
+  regression scenarios passed (unpaid/partial/full/imported/late/excess/increases/
+  NYE), plus exact Corporate scenario. Include pending d58e60d. No real customer
+  amendment or physical device QA. Existing loaded context also checks revision
+  before money comparison, with plain reopen guidance; SQL remains final authority.
+- Detail in archive/CANCELLATION_POLICY_WORKFLOW_UPDATE_2026-11-23.md; private
+  original hashes/fixtures local-evidence/unpaid-corporate-*. Frontend2 untouched.
+  Do not claim the already-repriced real booking is safe to reduce again before
+  quote reconciliation. No Production financial amendment performed for Vanessa.
+
+---
+
 # BUG-000040: Unpaid Booking Payment Breakdown
 
 STATUS: RELEASED / READY; HISTORICAL RAW-BALANCE RECONCILIATION REMAINS SEPARATE

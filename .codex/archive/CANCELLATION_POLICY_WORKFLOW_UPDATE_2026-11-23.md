@@ -5,6 +5,87 @@ Status: released to Production / READY; non-mutating live verification complete.
 
 ## Authority And Scope
 
+### 26 November Follow-Up: Unpaid Meditech Reduction
+
+Current task authority: correct unpaid preview/save, preserve funds and cutoffs,
+release safely, leave the actual three bookings unchanged. No new phase/workflow.
+Reuse GuestCountReconciliationModal, guestReductionPolicy, reconciliation API,
+existing policy transaction and atomic booking/ticket/seating delegates.
+
+**Identity and actual live state:** supplied ZNG-7AUTMY is a different unpaid12GC
+booking on17December2026. Matching JHB27February2027 group is GC120 ZNG-LVGP5J,
+MR120 ZNG-B8UKFZ and PB60 ZNG-YHKCS7. Each has zero payment rows/amount paid0.
+No invoices raised is user/operational-note evidence; Corporate creation event
+"invoice-outstanding" is not proof an accounting invoice was issued.
+
+PB original audit:18Nov created60 guests, ticket86400/gratuity10800/total97200,
+no payment.26Nov12:33:53.467 SAST Vanessa financial-reconciliation changed total
+97200->32400, subtotal86400->21600, paid0, balance32400; guest count remains60,
+service fee10800. Her reason explicitly targets20PB/total260 at28800+3600.
+Current raw proportional basis consequently gives10800 after another60->20, NOT
+intended32400. This manual financial change must not be silently reverse-engineered
+or auto-repaired. Operator can reconcile quote through existing financial controls
+before guest reduction; no developer/Accounts-only new workflow introduced. Leave
+all real bookings/payment/ticket rows unchanged as expressly requested.
+
+**Preview/conflict evidence:** old65a5d15 helper treated all released Corporate
+ticket/gratuity as paid, reproducing64800 refund from original quote. BUG39 changed
+that calculation; current installed basis explicitly returns amountPaid0 and fresh
+shared preview returns ticket28800/gratuity3600,total/outstanding32400,refund0.
+Read-only request logs confirm three409 POSTs26Nov12:22:36/12:29:02/12:35:30 SAST
+on1d92065/dpl_58qBfqYtpbZVeyMVwn6zStWMBQq6. No existing runtime rejection log or
+captured request payload/browser application version proves exactly why her old
+preview persisted. A stale client/form reproduces the mismatch; later financial
+edit is independently confirmed and legitimately invalidates an earlier preview.
+Do not claim browser cache/provider fault as established fact.
+
+**Confirmed gaps corrected:** optional amountPaid previously defaulted to total,
+silently assuming fully paid if omitted. Make payment evidence required and fail
+closed at runtime for absent/invalid values. Effective UI disposition resets to
+existing neutral review value when no eligible paid funds, so a hidden previous
+bar/outstanding choice cannot block save. Unpaid early UI has no refund/bar choice
+or zero-valued refund/forfeiture clutter. Existing server accepts omitted choice
+only for validated unpaid early cases and preserves replay/preview comparison,
+revision, locks, permissions and SQL guards; no retry/overwrite of genuine conflict.
+
+Authenticated fixture also confirmed pre-fix policy wrapper persisted old service
+fee and wrong subtotal while allocation already held correct remaining gratuity.
+Narrow migration20261126140000 patches only that existing function, original hash
+4f38a4b71037c73ce338f0f9ebfb2f86. For future early/native-or-Corporate unpaid
+amendments, synchronise saved subtotal/service fee and embedded values with current
+allocation. Imported accounting layouts, paid balances, late forfeitures and
+Buyouts retain existing semantics. Explicit SQL guard forbids unpaid refund/bar/
+gratuity credit. No schema/grant changes, historical row updates or financial events.
+
+**Why BUG39 checks missed these:** its fresh same-version policy/SQL fixtures
+supplied explicit paid values and checked total/receipts/allocations, not missing
+payment evidence, retained hidden UI choice or saved service-fee/subtotal columns.
+No cross-release open-browser preview evidence was captured. Existing corrected
+zero-paid calculation was not itself reproduced as faulty on today's fresh code.
+
+Verification:85 targeted tests pass including unpaid/partial/full, exact5/7-day
+boundaries, refund/bar/balance choices, BUG37 components, BUG38 NYE guards, BUG39
+and Table Plan/payment-link regressions. TypeScript/targeted lint pass. Existing
+authenticated fixture harness reused: actual modal/API/permissions plus cloned
+SQL in rollback-only temp tables, original60->20 persists32400/paid0, subtotal
+28800/servicefee3600 and metadata match, no refund/credit or allocation selection,
+replay and reopen pass. Link32410 preserves existing10 checkout fee distinct from
+booking32400;390/1280 no overflow,401/403. Wider patched SQL matrix in progress.
+No real Production customer amendment, physical iPhone or issued invoice QA claimed.
+All10 existing authenticated patched-SQL regression journeys subsequently passed:
+outstanding allocation, native unpaid, BUG39 partial, full-paid bar, Corporate
+partial, late Corporate, imported Corporate, capped excess, Standard increase and
+NYE guarded increase. Exact Corporate fixture additionally rejects old64800 refund
+preview without any mutation and checks replay. Existing context now includes
+updated_at (no extra query): actual changed revisions receive clear reopen guidance
+before financial preview comparison, while original SQL safeguards remain final.
+
+Private snapshots/original definitions/results/screens: local-evidence/unpaid-
+corporate-*. Include pending final BUG40 documentation d58e60d in release. Known
+November12 ledger discrepancy untouched; apply only new hash-guarded migration,
+never broad db push. Rollback scoped app commit plus saved original function,
+not financial-history rewrites. Frontend2 untouched. Release evidence to follow.
+
 Read AGENTS.md/CURRENT_TASK.md/README.md and the recent cancellation/gratuity,
 retained-allocation and Production release records. Management explicitly
 authorised prospective cancellation workflow/disclosure changes and release.

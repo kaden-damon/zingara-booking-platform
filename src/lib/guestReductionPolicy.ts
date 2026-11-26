@@ -12,7 +12,7 @@ export type GuestReductionBasis = {
   totalAmount: number;
   blockedReason: string | null;
   depositOnly?: boolean;
-  amountPaid?: number;
+  amountPaid: number;
   componentConfirmationRequired?: boolean;
   confirmedComponents?: GuestReductionComponents;
 };
@@ -55,7 +55,8 @@ export function previewGuestReduction(
   disposition: GuestReductionDisposition = "review-refund",
   now = new Date(),
 ) {
-  if (basis.blockedReason || !Number.isInteger(newGuestCount) || newGuestCount < 1 ||
+  if (basis.blockedReason || !Number.isFinite(basis.amountPaid) || basis.amountPaid < 0 ||
+    basis.amountPaid > basis.totalAmount || !Number.isInteger(newGuestCount) || newGuestCount < 1 ||
     newGuestCount >= basis.guestCount) return null;
   const removed = basis.guestCount - newGuestCount;
   const released = cents(basis.ticketAmount) - Math.round(cents(basis.ticketAmount) * newGuestCount / basis.guestCount);
@@ -68,7 +69,7 @@ export function previewGuestReduction(
     totalAmount: released / 100,
   });
   const forfeited = cents(policy.forfeitedAmount);
-  const outstanding = Math.max(0, cents(basis.totalAmount) - cents(basis.amountPaid ?? basis.totalAmount));
+  const outstanding = Math.max(0, cents(basis.totalAmount) - cents(basis.amountPaid));
   // Release outstanding obligations first; a balance is not a paid refund/credit.
   const releasedUnpaid = basis.depositOnly ? released - 55000 * removed : Math.min(outstanding, released - forfeited);
   const releasedPaid = released - releasedUnpaid;

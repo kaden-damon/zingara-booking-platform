@@ -288,11 +288,16 @@ export async function POST(request: Request) {
       body.action === "guest-count" || body.action === "financial"
         ? await auth.serviceClient
             .from("bookings")
-            .select("amount_paid,booking_origin,booking_source,id,booking_reference,show_id,guest_count,payment_status,notes,service_fee,subtotal_amount,total_amount,balance_outstanding")
+            .select("amount_paid,booking_origin,booking_source,id,booking_reference,show_id,guest_count,payment_status,notes,service_fee,subtotal_amount,total_amount,balance_outstanding,updated_at")
             .eq("booking_reference", bookingReference)
             .maybeSingle()
         : { data: null, error: null };
     if (bookingContextError) throw bookingContextError;
+    if (body.action === "guest-count" && bookingContext && Number(body.guestCount) < Number(bookingContext.guest_count) &&
+      new Date(body.expectedUpdatedAt).getTime() !== new Date(bookingContext.updated_at).getTime()) {
+      return Response.json({ code: "BOOKING_REVISION_CHANGED",
+        error: "This booking changed. Close this window and reopen Edit Guest Count before saving." }, { status: 409 });
+    }
     const existingAllocation = parseBookingMetadata(bookingContext?.notes ?? null)?.valueAllocation as { policyApplied?: boolean } | undefined;
     if (existingAllocation?.policyApplied && body.action === "financial") {
       return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error: "This retained cancellation allocation requires component-level Accounts resolution; a total-only edit would lose its forfeiture and refund evidence." }, { status: 409 });
@@ -348,10 +353,16 @@ export async function POST(request: Request) {
     const isReductionReplay = body.action === "guest-count" && Boolean(body.reductionOperationId?.trim()) &&
       Number(body.guestCount) === Number(bookingContext?.guest_count);
     const policyReduction = (isReduction && !isBuyoutReduction) || isReductionReplay;
-    const reductionPreview = isReductionReplay ? body.expectedReductionPreview as ReturnType<typeof previewGuestReduction> : policyReduction && reductionBasis
-      ? previewGuestReduction(reductionBasis, Number(body.guestCount), body.reductionDisposition) : null;
+    const defaultReductionPreview = policyReduction && reductionBasis
+      ? previewGuestReduction(reductionBasis, Number(body.guestCount)) : null;
+    const reductionDisposition = body.reductionDisposition ??
+      (Number(bookingContext?.amount_paid) === 0 && (defaultReductionPreview?.fullRefundWindow ||
+        isReductionReplay && body.expectedReductionPreview?.fullRefundWindow === true) ? "review-refund" : undefined);
+    const reductionPreview = isReductionReplay ? body.expectedReductionPreview as ReturnType<typeof previewGuestReduction>
+      : reductionDisposition === "review-refund" ? defaultReductionPreview : policyReduction && reductionBasis
+        ? previewGuestReduction(reductionBasis, Number(body.guestCount), reductionDisposition) : null;
     if (policyReduction && (!reductionPreview || !body.reductionOperationId?.trim() ||
-      !["review-refund", "bar-credit", "outstanding-balance"].includes(body.reductionDisposition ?? ""))) {
+      !["review-refund", "bar-credit", "outstanding-balance"].includes(reductionDisposition ?? ""))) {
       return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error:
         reductionBasis?.blockedReason || "Review the cancellation allocation before confirming this reduction." }, { status: 409 });
     }
@@ -566,7 +577,7 @@ export async function POST(request: Request) {
           }
         : policyReduction
           ? { ...requestMetadata, p_guest_count: Number(body.guestCount),
-              p_disposition: body.reductionDisposition, p_expected_preview: reductionPreview }
+              p_disposition: reductionDisposition, p_expected_preview: reductionPreview }
         : hasRetainedValueTransfer
           ? {
               ...requestMetadata,

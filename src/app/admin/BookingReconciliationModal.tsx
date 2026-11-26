@@ -304,7 +304,11 @@ export function GuestCountReconciliationModal(
   }) : null;
   const basis = confirmedBasis ?? savedBasis;
   const isBuyoutReduction = Boolean(basis?.blockedReason?.startsWith("Buyout:"));
-  const reductionPreview = basis ? previewGuestReduction(basis, draft.guestCount, reductionDisposition) : null;
+  const defaultReductionPreview = basis ? previewGuestReduction(basis, draft.guestCount) : null;
+  const effectiveDisposition = defaultReductionPreview?.eligibleTicketAmount === 0 ? "review-refund" : reductionDisposition;
+  const reductionPreview = effectiveDisposition === "review-refund" ? defaultReductionPreview
+    : basis ? previewGuestReduction(basis, draft.guestCount, effectiveDisposition) : null;
+  const unpaidReduction = booking.amountPaid === 0 && reductionPreview?.fullRefundWindow === true;
   const reductionBlocked = isReduction && !isBuyoutReduction && !reductionPreview;
   const isComplimentaryIncrease =
     financials.addedGuests > 0 &&
@@ -355,7 +359,7 @@ export function GuestCountReconciliationModal(
   }
 
   function submitGuestCount() {
-    if (reductionBlocked || (reductionDisposition === "bar-credit" && reductionPreview?.eligibleTicketAmount === 0)) {
+    if (reductionBlocked) {
       setSubmissionError(basis?.blockedReason || "Review the cancellation allocation before saving.");
       return;
     }
@@ -363,7 +367,7 @@ export function GuestCountReconciliationModal(
     setSubmissionError("");
     props.onSave({
       guestCount: draft.guestCount,
-      reductionDisposition: isReduction && !isBuyoutReduction ? reductionDisposition : undefined,
+      reductionDisposition: isReduction && !isBuyoutReduction && !unpaidReduction ? effectiveDisposition : undefined,
       reductionOperationId: isReduction && !isBuyoutReduction ? operationId : undefined,
       expectedReductionPreview: reductionPreview,
       expectedAdditionalAmount: financials.additionalAmount ?? undefined,
@@ -492,16 +496,16 @@ export function GuestCountReconciliationModal(
       {isReduction && !isBuyoutReduction && !savedBasis?.componentConfirmationRequired && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
       {reductionPreview && (
         <section className="mt-4 rounded-xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
-          <p className="text-xs font-semibold uppercase text-[#F2D66C]">Cancellation Allocation</p>
+          <p className="text-xs font-semibold uppercase text-[#F2D66C]">{unpaidReduction ? "Guest reduction" : "Cancellation Allocation"}</p>
           <p className="mt-2 text-xs text-zinc-400">{basis?.bookingKind === "corporate" ? "Corporate · 7 days" : "Standard · 5 days"} · {reductionPreview.fullRefundWindow ? "Within permitted period" : "Late reduction"}. Forfeited amounts cannot become bar credit.</p>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <p>Guests removed<br /><strong>{booking.guestCount - draft.guestCount}</strong></p>
             <p>Remaining tickets<br /><strong>{formatMoney(reductionPreview.ticketAmount)}</strong></p>
-            <p>Tickets forfeited<br /><strong>{formatMoney(reductionPreview.forfeitedAmount)}</strong></p>
-            <p>Gratuity forfeited<br /><strong>{formatMoney(reductionPreview.gratuityForfeitedAmount)}</strong></p>
+            {!unpaidReduction && <p>Tickets forfeited<br /><strong>{formatMoney(reductionPreview.forfeitedAmount)}</strong></p>}
+            {!unpaidReduction && <p>Gratuity forfeited<br /><strong>{formatMoney(reductionPreview.gratuityForfeitedAmount)}</strong></p>}
             <p>Remaining gratuity<br /><strong>{formatMoney(reductionPreview.ticketGratuityAmount)}</strong></p>
-            <p>Bar allocation<br /><strong>{formatMoney(reductionPreview.barTabAmount)}</strong></p>
-            <p>Eligible refund · Accounts processing<br /><strong>{formatMoney(reductionPreview.refundReviewAmount)}</strong></p>
+            {(!unpaidReduction || reductionPreview.barTabAmount > 0) && <p>Bar allocation<br /><strong>{formatMoney(reductionPreview.barTabAmount)}</strong></p>}
+            {reductionPreview.refundReviewAmount > 0 && <p>Eligible refund · Accounts processing<br /><strong>{formatMoney(reductionPreview.refundReviewAmount)}</strong></p>}
             {reductionPreview.gratuityReviewAmount > 0 && <p>Gratuity held for authorised review<br /><strong>{formatMoney(reductionPreview.gratuityReviewAmount)}</strong></p>}
             <p>Total Amount Paid<br /><strong>{formatMoney(booking.amountPaid)}</strong></p>
             <p>Revised retained total<br /><strong>{formatMoney(reductionPreview.totalRetainedValue)}</strong></p>
@@ -509,13 +513,13 @@ export function GuestCountReconciliationModal(
             {reductionPreview.outstandingBalanceAllocationAmount > 0 && <p>Allocated towards balance<br /><strong>{formatMoney(reductionPreview.outstandingBalanceAllocationAmount)}</strong></p>}
           </div>
           {reductionPreview.eligibleTicketAmount > 0 && <label className="mt-4 block text-xs text-zinc-300">Eligible ticket value only
-            <select value={reductionDisposition} onChange={(event) => setReductionDisposition(event.target.value as GuestReductionDisposition)} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-black px-3">
+            <select value={effectiveDisposition} onChange={(event) => setReductionDisposition(event.target.value as GuestReductionDisposition)} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-black px-3">
               <option value="review-refund">Refund through existing authorised process</option>
               <option value="bar-credit">Transfer eligible ticket value to bar</option>
               {reductionPreview.fullRefundWindow && (reductionPreview.newOutstanding > 0 || reductionPreview.outstandingBalanceAllocationAmount > 0) && <option value="outstanding-balance">Allocate towards outstanding balance</option>}
             </select>
           </label>}
-          <p className="mt-3 text-xs text-zinc-400">Original receipts remain unchanged. Released unpaid ticket balances are removed; paid value is retained as shown pending any authorised refund. No automatic refund or additional gratuity charge. Cancelled gratuity is never transferred to bar.</p>
+          <p className="mt-3 text-xs text-zinc-400">{unpaidReduction ? "No payment received. The unpaid balance will be reduced; no refund or bar credit is created." : "Original receipts remain unchanged. Released unpaid ticket balances are removed; paid value is retained as shown pending any authorised refund. No automatic refund or additional gratuity charge. Cancelled gratuity is never transferred to bar."}</p>
         </section>
       )}
       <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to Needs a table.</p>
