@@ -100,7 +100,21 @@ Date: 26 November 2026. Status: released / READY; authenticated completion and i
   to Markdown; no claim of raw received CSS inspection. One email only, no resend.
 - Final targeted server-only correction handles a recorded show ID with no page
   URL, retaining exact venue/show and reporter permissions. Same31 tests pass with
-  added case; final deployment evidence follows. No additional migration/email.
+  added case; no additional migration/email.
+- Final application commit `0f8228d78a87d1355f4ec17582441107f5fe432f` pushed Main;
+  Production `dpl_6iy3yRA2d1wUdqm1jE5dNLYzQzCt` READY. Exact-SHA deployment list
+  and actual book.zingara.co.za alias both identify
+  `zingara-booking-platform-kk57xzqwp-kaden-damons-projects.vercel.app`.
+  Clean build compiled successfully; unchanged budgets raw1,312,092/1,320,000,
+  gzip319,009/320,000,largestgzip169,665/170,000 all pass. Live /admin200.
+- Final bounded readback confirms active email/custom_message template `Staff Issue
+  Resolution`, migration ledger20261126170000, exactly one resolution delivery
+  and one sent fixture email. No historical reporter notified. Final verified-release
+  records retained in a scoped local documentation commit for next authorised
+  release, per README, without triggering another application deployment.
+- User requested stop after essential verification; no further exploratory testing,
+  mailbox checks or unrelated investigation. No physical iPhone claim or broad
+  regression-suite claim. Frontend2/private rollback records remain untouched.
 
 ## Remaining Boundaries
 

@@ -38,7 +38,14 @@ DATE: 26 NOVEMBER 2026
   kaden@kaden.co.za, no CC; correct brand, reference, time, notes, Customers CTA.
 - Final server-only context edge: show ID without page URL now still opens exact
   permitted performance. Same31 targeted tests pass including this case; final
-  release reference to follow. No second test email or real historical notification.
+  commit0f8228d78a87d1355f4ec17582441107f5fe432f pushed Main. Final Production
+  dpl_6iy3yRA2d1wUdqm1jE5dNLYzQzCt READY, actual book.zingara.co.za alias verified;
+  deployment URL zingara-booking-platform-kk57xzqwp-kaden-damons-projects.vercel.app.
+  Clean build/budgets unchanged and passing, /admin200. Final bounded readback:
+  active managed Staff Issue Resolution template, migration ledger present, exactly
+  one resolution delivery and one sent fixture email. No second test email or real
+  historical notification. Final evidence Markdown retained locally for the next
+  authorised release per README, avoiding a documentation-only deployment.
 
 ---
 
