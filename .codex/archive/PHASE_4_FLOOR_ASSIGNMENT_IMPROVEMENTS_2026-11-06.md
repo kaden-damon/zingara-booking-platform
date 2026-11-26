@@ -312,7 +312,7 @@ within checked scope. Pre-existing legacy inventory review remains separate.
 
 ## Temporary Table Permission Restoration — 26 November 2026
 
-Status: verified; authorised Production release in progress. Existing task only.
+Status: released / READY; authenticated both-venue fixtures verified. Existing task only.
 
 Confirmed cause:1ad9b4e extended the permanent-seat named-editor gate into manual
 temporary create/capacity/status edits and reviewed temporary-capacity plans.
@@ -381,3 +381,31 @@ Verification:
 Baseline before release: Main6203a65d5adfb8c17ef6c93bad7fb14974770bbc,
 dpl_A2LFVitMPTwUiHvNAe28srNAyf2A READY. Pending documentationc576a1d is included
 in the authorised release. No migrations/ledger repair or Frontend2.0 changes.
+
+### Verified Temporary-Table Release
+
+- Commit1d92065c41c65cf02a539cd15b9ac62c67b4aa62 pushed Main with pending
+  documentationc576a1d. Vercel dpl_58qBfqYtpbZVeyMVwn6zStWMBQq6 READY;
+  exact-SHA deployment and actual book.zingara.co.za alias verified.
+- Clean build passes unchanged budgets: raw1310086/1320000, gzip318394/320000,
+  largest169065/170000. Only10 gzip bytes over prior release; no additional normal
+  data queries, dependencies or architecture. No budget increase or bypass.
+- Live /admin and /book HTTP200. Unauthenticated create requests to show-tables
+  and floor-capacity-plan both401 before any real action. Authenticated fixtures
+  separately prove actual allowed writes and403 denials, not merely deployed assets.
+- Both Cape Town/Johannesburg PASSED create, edit, reopen, assign, release, block
+  and reopened unavailable state. Actual unchanged SQL enforces assigned occupancy;
+  original rows retained, receipts/QR identities unchanged. Permanent named-editor,
+  merged capacity, single-table/no-split and public-capacity regressions passed.
+- No real seating, booking, payment, role, public setting or historical record
+  changes. No migration, notifications, extra temp booth or Frontend2.0 changes.
+  Real Production staff mutations/physical iPhone remain unverified intentionally;
+  no available authenticated Production browser tab. Existing generic500 mapping
+  for an invalid below-occupancy capacity remains a separate unchanged limitation.
+- Private final evidence: local-evidence/temporary-table-production-release.json.
+  Code rollback is the scoped application diff only; never rewind business rows.
+  Final records committed locally for next authorised release per README, avoiding
+  a redundant documentation-only Production deployment.
+- Staff note: Temporary table controls were restricted by mistake. Staff who
+  manage tables can use them again; refresh Floor & Arrivals. Permanent table
+  controls are unchanged.

@@ -1,6 +1,6 @@
 # Temporary Table Management Permission Restoration
 
-STATUS: VERIFIED; AUTHORISED PRODUCTION RELEASE IN PROGRESS
+STATUS: RELEASED / READY; BOTH-VENUE AUTHENTICATED FIXTURE LIFECYCLES VERIFIED
 
 DATE: 26 NOVEMBER 2026
 
@@ -31,6 +31,14 @@ DATE: 26 NOVEMBER 2026
   c576a1d documentation in authorised release. Private evidence/rollback unchanged:
   local-evidence/temporary-table-*. Frontend2.0 untouched.
 - Detailed continuation: archive/PHASE_4_FLOOR_ASSIGNMENT_IMPROVEMENTS_2026-11-06.md.
+- Release1d92065c41c65cf02a539cd15b9ac62c67b4aa62 pushed Main, including pending
+  c576a1d; dpl_58qBfqYtpbZVeyMVwn6zStWMBQq6 READY, exact-SHA deployment/live
+  book.zingara.co.za alias verified. Live /admin,/book200; show-tables and
+  floor-capacity-plan unauthenticated create401. No migration or business-row write.
+- Clean Vercel build budgets pass raw1310086/1320000, gzip318394/320000,
+  largest169065/170000. No normal data-request/dependency changes. Private release
+  evidence local-evidence/temporary-table-production-release.json. Final records
+  retained in local documentation commit for next release; no redundant deployment.
 
 ---
 
