@@ -1,6 +1,6 @@
 # Unpaid Corporate Guest Reduction: Meditech
 
-STATUS: LOCAL FIX VERIFIED; RELEASE/INSTALLED VERIFICATION IN PROGRESS
+STATUS: RELEASED / READY; ORIGINAL WORKFLOW VERIFIED; REAL QUOTE EXCEPTION OPEN
 
 DATE: 26 NOVEMBER 2026
 
@@ -40,6 +40,22 @@ DATE: 26 NOVEMBER 2026
   original hashes/fixtures local-evidence/unpaid-corporate-*. Frontend2 untouched.
   Do not claim the already-repriced real booking is safe to reduce again before
   quote reconciliation. No Production financial amendment performed for Vanessa.
+- Release091cb647d2e5f13b5cabc5d2dff3184d4eca0f39 includes pending d58e60d;
+  pushed Main. Production dpl_9E6GuXecX3Sah7a6uyTwhGxXcoGe READY, exact-SHA list
+  and actual book.zingara.co.za alias verified. Clean budget raw1310739/1320000,
+  gzip318578/320000, largest169236/170000 passed unchanged limits. /admin,/book200;
+  unauthenticated reconciliation POST401. No real authenticated staff action claimed.
+- Applied/recorded only20261126140000 after READY. All four original/group booking,
+  payment and ticket hashes unchanged; only policy wrapper definition changed among
+  protected functions. No historical data/config/permissions/Frontend2 change.
+- Installed definitions then passed exact actual-modal/authenticated fixture again,
+  including stale64800 preview and changed revision rejection, no allocation choice,
+  save/replay/reopen,32400 balance and3600 fee. All3 zone bookings share one customer
+  and remain300 guests. Actual booking quote issue is NOT resolved/auto-corrected.
+  Vanessa must review the already-changed quote using existing controls before
+  retrying; do not blindly reduce its32400 total again. No financial authorisation
+  inferred from this code release. Final records retained locally for next release
+  under README exception, avoiding redundant Markdown-only Production deployment.
 
 ---
 

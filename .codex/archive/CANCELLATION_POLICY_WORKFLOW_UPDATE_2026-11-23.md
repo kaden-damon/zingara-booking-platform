@@ -86,6 +86,34 @@ November12 ledger discrepancy untouched; apply only new hash-guarded migration,
 never broad db push. Rollback scoped app commit plus saved original function,
 not financial-history rewrites. Frontend2 untouched. Release evidence to follow.
 
+**Verified release:**091cb647d2e5f13b5cabc5d2dff3184d4eca0f39 pushed Main, including
+pending d58e60d documentation. Vercel dpl_9E6GuXecX3Sah7a6uyTwhGxXcoGe READY,
+exact-SHA list and book.zingara.co.za live alias verified26Nov2026. Clean build
+budgets pass raw1310739/1320000,gzip318578/320000,largest169236/170000; no budget
+increased (initial gzip +13 bytes over BUG40). Live /admin,/book200; unauthenticated
+reconciliation POST401. Actual authenticated Production customer action not claimed.
+
+Applied and recorded only20261126140000 after READY with original-definition hash
+and marker guards. Before/after hashes identical for all4 reference/group bookings,
+their payments and tickets. Other checked basis/link/amendment/ticket functions
+unchanged. Installed function definitions then exercised in exact authenticated
+isolated modal fixture: stale64800 preview rejected409 with no mutation, stale
+revision rejected409 with clearer guidance,60->20 saves with omitted allocation
+choice, paid0,subtotal28800,servicefee3600,total/balance32400; replay/reopen pass.
+No refund/bar credit/receipt created; payment link32410 preserves existing checkout
+fee10. Same-customer count3/total guests300 and migration-ledger entry verified.
+
+Operational exception remains OPEN, not silently marked resolved: the real PB
+booking has already been repriced while guests stayed60. Do not advise a blind
+retry against the changed32400 quote; a second proportional reduction would
+incorrectly produce10800. Vanessa must reconcile the quote in existing authorised
+controls before the count amendment. Actual booking/price correction was expressly
+excluded, and was not performed. No conclusion that issued accounting documents
+do/do not exist beyond reported evidence; check any documents before price repair.
+The original unpaid workflow and released code are verified, not the unresolved
+manual quote correction. Final records committed locally for next authorised release
+per README; no redundant Markdown-only deployment.
+
 Read AGENTS.md/CURRENT_TASK.md/README.md and the recent cancellation/gratuity,
 retained-allocation and Production release records. Management explicitly
 authorised prospective cancellation workflow/disclosure changes and release.
