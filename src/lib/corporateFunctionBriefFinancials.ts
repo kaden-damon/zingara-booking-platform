@@ -70,6 +70,22 @@ export function resolveFunctionBriefBuyoutComposition(
   row: FunctionBriefBuyoutRow | null,
   booking: { addonsTotal: number; serviceFee: number; totalAmount: number; notes?: string | null },
 ) {
+  try {
+    const agreement = booking.notes?.startsWith(metadataPrefix)
+      ? JSON.parse(booking.notes.slice(metadataPrefix.length)).operationalFinancialAgreement : null;
+    const composition = agreement?.buyoutComposition;
+    if (composition && row && [composition.baseAmount, composition.vatAmount, composition.additionalGuestAmount].every(
+      value => typeof value === "number" && Number.isFinite(value) && value >= 0,
+    ) && composition.baseAmount === row.commercial_base_amount && composition.vatAmount === row.commercial_vat_amount &&
+      composition.additionalGuestAmount === row.commercial_additional_guest_amount && agreement.gratuityAmount === booking.serviceFee &&
+      agreement.gratuityAmount === row.commercial_gratuity_amount &&
+      Math.round((composition.baseAmount + composition.vatAmount + composition.additionalGuestAmount) * 100) === Math.round((agreement.ticketAmount - agreement.discountAmount) * 100) &&
+      Math.round((row.commercial_total_amount + agreement.barTabAmount + agreement.otherAmount + agreement.forfeitedAmount +
+        agreement.gratuityForfeitedAmount + agreement.refundReviewAmount + agreement.gratuityReviewAmount) * 100) === Math.round(booking.totalAmount * 100)) {
+      return { packageName: row.package_snapshot?.displayName?.trim() || null,
+        packageBaseAmount: composition.baseAmount, vatAmount: composition.vatAmount };
+    }
+  } catch { /* Existing historical fallback below remains authoritative. */ }
   const agreement = readCorporateBuyoutAgreement(booking.notes, booking.totalAmount);
   if (agreement && row &&
     Math.round(row.commercial_base_amount * 100) === Math.round((agreement.originalBase - agreement.discount) * 100) &&

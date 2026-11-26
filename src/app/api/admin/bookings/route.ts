@@ -1,4 +1,5 @@
 import { normalizeAttendingGuestName } from "@/lib/bookingGuestName";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import { getTableBookingMaximum } from "@/lib/physicalTables";
 import {
   getAdminRoleFromName,
@@ -1310,6 +1311,7 @@ async function persistBookingTableAssignment(
     await auth.serviceClient.rpc("assign_unallocated_booking_table_atomic", {
       p_booking_id: bookingId,
       p_target_table_id: booking.tableId,
+      ...(hasBookingOperationalAuthority(auth.staffProfile) ? { p_actor_staff_profile_id: auth.staffProfile.id, p_actor_auth_user_id: auth.user.id } : {}),
     });
 
   if (assignmentError) {
@@ -1624,6 +1626,7 @@ async function persistPhysicalTableMapping(
       p_booking_id: booking.id,
       p_expected_previous_table_id: booking.table_id,
       p_target_table_id: typedTargetTable.id,
+      ...(hasBookingOperationalAuthority(auth.staffProfile) ? { p_actor_staff_profile_id: auth.staffProfile.id, p_actor_auth_user_id: auth.user.id } : {}),
     },
   );
 
@@ -1942,7 +1945,7 @@ async function persistCorporateZoneEntitlementUpdate(
       { status: 409 },
     );
   }
-  if (totalPax !== booking.guest_count) {
+  if (totalPax !== booking.guest_count && !hasBookingOperationalAuthority(auth.staffProfile)) {
     return Response.json(
       { error: `This booking has ${booking.guest_count} guests. Allocate all ${booking.guest_count} guests across the selected seating zones before saving.` },
       { status: 400 },
@@ -2016,7 +2019,7 @@ async function persistBookingShowTransfer(
   );
   const restrictedShowApprovalReason = normalizeInternalShowApprovalReason(
     input.restrictedShowApprovalReason,
-  );
+  ) || (hasBookingOperationalAuthority(auth.staffProfile) ? "Authorised Box Office performance selection." : "");
 
   if (!bookingReference || !destinationShowId || !expectedShowId) {
     return Response.json(
@@ -2171,7 +2174,7 @@ async function persistBookingShowTransfer(
     );
   }
 
-  if (twoSeaterOverrideReason) {
+  if (twoSeaterOverrideReason || (Number(bookingResult.data?.guest_count) === 2 && hasBookingOperationalAuthority(auth.staffProfile))) {
     if (!canOverrideTwoSeaterLimit(role)) {
       return Response.json(
         { error: "You are not authorised to override the two-guest booking limit." },
@@ -2186,7 +2189,7 @@ async function persistBookingShowTransfer(
       actorRole: role,
       actorStaffProfileId: auth.staffProfile.id,
       bookingReference,
-      reason: twoSeaterOverrideReason,
+      reason: twoSeaterOverrideReason || "Authorised Box Office performance selection.",
       request,
       showId: destinationShowId,
     });
@@ -2331,7 +2334,7 @@ async function runBookingTransaction(request: Request, body?: unknown) {
       ? (rawRequestBody as { restrictedShowApprovalReason?: unknown })
           .restrictedShowApprovalReason
       : "",
-  );
+  ) || (hasBookingOperationalAuthority(auth.staffProfile) ? "Authorised Box Office performance selection." : "");
   let restrictedShowApproval: {
     label: string;
     showId: string;

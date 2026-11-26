@@ -24,6 +24,7 @@ import {
 } from "../../lib/zingaraDemo";
 
 type Props = {
+  operationalAuthority?: boolean;
   enabledZoneIds: string[];
   error: string;
   initialZoneId: string;
@@ -40,6 +41,7 @@ function initialVenue(request: CorporateRequest) {
 }
 
 export default function CorporateConversionModal({
+  operationalAuthority = false,
   enabledZoneIds,
   error,
   initialZoneId,
@@ -137,7 +139,7 @@ export default function CorporateConversionModal({
 
     const nextErrors = validateCorporateConversionReview(draft);
     if (
-      internalShowDecision.requiresManagementApproval &&
+      !operationalAuthority && internalShowDecision.requiresManagementApproval &&
       !isInternalShowApprovalReasonValid(draft.restrictedShowApprovalReason)
     ) {
       nextErrors.restrictedShowApprovalReason =
@@ -208,7 +210,7 @@ export default function CorporateConversionModal({
             {errors.venue && <span className="text-xs text-red-300">{errors.venue}</span>}
           </label>
 
-          {internalShowDecision.label !== "OPEN" && (
+          {!operationalAuthority && internalShowDecision.label !== "OPEN" && (
             <div className="rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm text-amber-100 sm:col-span-2">
               <p className="font-semibold uppercase tracking-[0.1em]">
                 {internalShowDecision.label}

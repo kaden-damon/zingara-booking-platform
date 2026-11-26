@@ -58,6 +58,7 @@ import {
 } from "@/lib/phone";
 import { isStandardBookingZoneGuestCountAllowed } from "@/lib/bookingSeatingAvailability";
 import { getSeatingBookingLimit } from "@/lib/seatingBookingLimits";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import {
   findDuplicateSentCommunication,
   insertCommunicationPayload,
@@ -1810,7 +1811,7 @@ export async function POST(request: Request) {
     }
     const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
       body.twoSeaterOverrideReason,
-    );
+    ) || (booking.partySize === 2 && hasBookingOperationalAuthority(staffAuthContext?.staffProfile) ? "Authorised Box Office guest selection." : "");
     const restrictedShowApprovalReason = normalizeInternalShowApprovalReason(
       body.restrictedShowApprovalReason,
     );
@@ -2120,10 +2121,16 @@ export async function POST(request: Request) {
       );
     }
 
+    const requiresBookingSizeException = isCreate && booking.source !== "corporate-direct" &&
+      !authoritativeGuestAllocations && !isStandardBookingZoneGuestCountAllowed(booking.zoneId, booking.partySize,
+        getSeatingBookingLimit(lifecycleSettings, show?.venue, booking.zoneId));
+    const bookingSizeExceptionApproved = requiresBookingSizeException &&
+      hasBookingOperationalAuthority(staffAuthContext?.staffProfile);
     if (
       isCreate &&
       booking.source !== "corporate-direct" &&
       !authoritativeGuestAllocations &&
+      !bookingSizeExceptionApproved &&
       !isStandardBookingZoneGuestCountAllowed(booking.zoneId, booking.partySize,
         getSeatingBookingLimit(lifecycleSettings, show?.venue, booking.zoneId))
     ) {
@@ -2169,7 +2176,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (internalDecision.requiresManagementApproval) {
+      if (internalDecision.requiresManagementApproval && !hasBookingOperationalAuthority(staffAuthContext?.staffProfile)) {
         if (
           !staffRole ||
           !rolePermissions[staffRole].includes("bookings:reconcile")
@@ -2868,6 +2875,17 @@ export async function POST(request: Request) {
     }
 
     const bookingId = await upsertBooking(supabase, booking, customerId, show.id);
+
+    if (bookingId && bookingSizeExceptionApproved) {
+      await tryRecordAuditEvent(supabase, staffAuthContext?.staffProfile, staffAuthContext?.user, {
+        action: "booking.commercial-exception", entityId: bookingId, entityReference: booking.reference,
+        entityType: "booking", outcome: "success", reason: "Authorised Box Office booking size selection.", request, sourceArea: "Bookings",
+        beforeValues: { public_booking_limits: getSeatingBookingLimit(lifecycleSettings, show.venue, booking.zoneId) },
+        afterValues: { guest_count: booking.partySize, section: booking.zoneTitle, total_amount: booking.totalPrice,
+          amount_paid: booking.amountPaid ?? 0, service_fee: booking.serviceFeeAmount ?? 0, show_id: show.id },
+        changedFields: ["guest_count"],
+      });
+    }
 
     if (!bookingId) {
       recordPlatformFailureEventBestEffort(

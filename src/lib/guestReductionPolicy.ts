@@ -15,6 +15,9 @@ export type GuestReductionBasis = {
   amountPaid: number;
   componentConfirmationRequired?: boolean;
   confirmedComponents?: GuestReductionComponents;
+  operationalAuthority?: boolean;
+  operationalException?: { waivePenalty: boolean; transferGratuity: boolean };
+  retainedAmounts?: { forfeitedAmount: number; gratuityForfeitedAmount: number; refundReviewAmount: number; gratuityReviewAmount: number };
 };
 
 export type GuestReductionComponents = {
@@ -68,7 +71,9 @@ export function previewGuestReduction(
     performanceDate: basis.performanceDate, performanceTime: basis.performanceTime,
     totalAmount: released / 100,
   });
-  const forfeited = cents(policy.forfeitedAmount);
+  const exception = basis.operationalAuthority ? basis.operationalException : undefined;
+  const penaltyWaived = exception?.waivePenalty === true;
+  const forfeited = penaltyWaived ? 0 : cents(policy.forfeitedAmount);
   const outstanding = Math.max(0, cents(basis.totalAmount) - cents(basis.amountPaid));
   // Release outstanding obligations first; a balance is not a paid refund/credit.
   const releasedUnpaid = basis.depositOnly ? released - 55000 * removed : Math.min(outstanding, released - forfeited);
@@ -76,15 +81,18 @@ export function previewGuestReduction(
   const unpaidGratuity = basis.depositOnly ? 0 : Math.min(gratuityReview, Math.max(0, outstanding - releasedUnpaid));
   const paidGratuity = gratuityReview - unpaidGratuity;
   const eligible = Math.max(0, releasedPaid - forfeited);
-  const gratuityForfeited = basis.bookingKind === "corporate" && !policy.fullRefundWindow ? paidGratuity : 0;
-  const gratuityRefundEligible = basis.bookingKind === "corporate" && policy.fullRefundWindow ? paidGratuity : 0;
-  const unresolvedGratuity = paidGratuity - gratuityForfeited - gratuityRefundEligible;
-  const barCredit = disposition === "bar-credit" ? eligible : 0;
+  const gratuityForfeited = basis.bookingKind === "corporate" && !policy.fullRefundWindow && !penaltyWaived ? paidGratuity : 0;
+  const gratuityRefundEligible = basis.bookingKind === "corporate" && (policy.fullRefundWindow || penaltyWaived) ? paidGratuity : 0;
+  const transferredGratuity = disposition === "bar-credit" && exception?.transferGratuity && (policy.fullRefundWindow || penaltyWaived) ? paidGratuity : 0;
+  const unresolvedGratuity = paidGratuity - gratuityForfeited - gratuityRefundEligible - (basis.bookingKind === "standard" ? transferredGratuity : 0);
+  const ticketCredit = disposition === "bar-credit" ? eligible : 0;
+  const barCredit = ticketCredit + transferredGratuity;
   const retainedOutstanding = Math.max(0, outstanding - releasedUnpaid - unpaidGratuity);
-  if (disposition === "outstanding-balance" && (!policy.fullRefundWindow || retainedOutstanding <= 0 || eligible <= 0)) return null;
+  if (disposition === "outstanding-balance" && ((!policy.fullRefundWindow && !penaltyWaived) || retainedOutstanding <= 0 || eligible <= 0)) return null;
   const balanceAllocation = disposition === "outstanding-balance" ? Math.min(eligible, retainedOutstanding) : 0;
   return {
     ...(basis.confirmedComponents ? { confirmedComponents: basis.confirmedComponents } : {}),
+    ...(exception ? { operationalException: exception } : {}),
     version: 1,
     previousGuestCount: basis.guestCount, guestCount: newGuestCount,
     bookingKind: basis.bookingKind, cutoffAt: policy.cutoffAt,
@@ -96,20 +104,20 @@ export function previewGuestReduction(
     releasedUnpaidAmount: releasedUnpaid / 100,
     ticketGratuityAmount: remainingGratuity / 100,
     ticketGratuityPaidAmount: Math.max(0, remainingGratuity - Math.max(0, outstanding - releasedUnpaid - unpaidGratuity - cents(basis.ticketAmount) + released)) / 100,
-    gratuityReviewAmount: unresolvedGratuity / 100,
-    gratuityForfeitedAmount: gratuityForfeited / 100,
-    gratuityRefundEligibleAmount: gratuityRefundEligible / 100,
-    gratuityTransferred: 0,
-    forfeitedAmount: forfeited / 100,
+    gratuityReviewAmount: unresolvedGratuity / 100 + (basis.retainedAmounts?.gratuityReviewAmount ?? 0),
+    gratuityForfeitedAmount: gratuityForfeited / 100 + (basis.retainedAmounts?.gratuityForfeitedAmount ?? 0),
+    gratuityRefundEligibleAmount: (gratuityRefundEligible - (basis.bookingKind === "corporate" ? transferredGratuity : 0)) / 100,
+    gratuityTransferred: transferredGratuity / 100,
+    forfeitedAmount: forfeited / 100 + (basis.retainedAmounts?.forfeitedAmount ?? 0),
     eligibleTicketAmount: eligible / 100,
-    refundReviewAmount: (eligible - barCredit - balanceAllocation + gratuityRefundEligible) / 100,
+    refundReviewAmount: (eligible - ticketCredit - balanceAllocation + gratuityRefundEligible - (basis.bookingKind === "corporate" ? transferredGratuity : 0)) / 100 + (basis.retainedAmounts?.refundReviewAmount ?? 0),
     outstandingBalanceAllocationAmount: balanceAllocation / 100,
     barCreditAmount: barCredit / 100,
     barTabAmount: (cents(basis.barTabAmount) + barCredit) / 100,
     otherAmount: basis.otherAmount,
     totalRetainedValue: (cents(basis.totalAmount) - releasedUnpaid - unpaidGratuity - balanceAllocation) / 100,
     newOutstanding: (retainedOutstanding - balanceAllocation) / 100,
-    manualResolutionRequired: eligible > barCredit + balanceAllocation || unresolvedGratuity > 0 || gratuityRefundEligible > 0,
+    manualResolutionRequired: eligible > ticketCredit + balanceAllocation || unresolvedGratuity > 0 || gratuityRefundEligible > transferredGratuity || Number(basis.retainedAmounts?.refundReviewAmount) > 0 || Number(basis.retainedAmounts?.gratuityReviewAmount) > 0,
   };
 }
 

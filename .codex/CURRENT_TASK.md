@@ -1,3 +1,83 @@
+# Urgent Box Office Operational Authority
+
+STATUS: OPERATIONAL FIXTURES VERIFIED; SCOPED PRODUCTION RELEASE IN PROGRESS
+
+DATE: 26 NOVEMBER 2026
+
+- Current explicit authority covers ALL operational/commercial booking workflows,
+  across all venues, for Fatima/Lisa/Michael/Vanessa/Sharon/Rasmus/Hannah/Nosi/Nomza/
+  Tao. Latest follow-up REMOVES mandatory reasons, warning acknowledgements,
+  extra commercial confirmations and further approval. Staff change/save directly;
+  server automatically audits identity/time/before/after/financial effects.
+- Read AGENTS, README, 24Nov reconciled baseline; preserved local778d7b2 pending
+  docs, live0f8228d/dpl_6iy3yRA2d1wUdqm1jE5dNLYzQzCt, private local-evidence.
+  Working tree started clean except private evidence. No Production writes yet.
+- Production identity query verifies eight active named profiles, all already
+  Super Admin with scope[all]: Fatima MB,Lisa Rodderick,Michael Davis,Vanessa Robinson,
+  Sharon Ricketts,Rasmus Bjerregaard,Hannah,Nosi Vani. No active Nomza/Tao found in
+  complete active-name list. No account creation, role promotion or unrelated grant.
+- ZNG-GSBYVL: authoritative4PB,show18DecCPT,admin_staff/admin,paid0,total/balance3843.33,
+  service_fee0. Metadata records6->4 reduction from5760, source rate1440; retained
+  policy allocation prorated5760 again and included fallback10 as otherAmount.
+  Rasmus notes confirm six were entered only to bypass the staff booth minimum.
+  Generic retained-allocation guard blocks payment correction even with zero paid.
+  Intended4x1440=5760 requires no online Standard gratuity. Do NOT silently edit
+  actual booking or force a balance; verify safe fixture and restore staff workflow.
+- In-progress reuse: existing book helpers/quick-start flag and signed handoff for
+  staff size exceptions; same reconciliation modal/API, component reconciliation
+  overload/automatic Timeline audit; existing reduction basis/policy for paid bar
+  and associated gratuity exceptions; same cancellation management context/permissions.
+  Pure shared binding bookingOperationalAuthority.ts uses verified IDs. New migration
+  20261126180000 is LOCAL ONLY, not applied. Existing public limits/capacity/refund/
+  permanent table gates untouched. Subject suffix correction scoped to resolution
+  template/default only; no new email or historical re-notification authorised.
+- Verification: current TypeScript and changed-file ESLint pass; git diff --check
+  passes. Existing policy/server/components/seating/floor40 tests and five new
+  authority/component tests all pass. Resolution notification15 tests also pass,
+  including exact subject without suffix; no actual email was sent.
+- Authenticated actual UI/API/temporary-SQL fixtures: distinct Rasmus and Fatima
+  profile/authentication IDs; explicit3843.33->5760 correction, then4->6 guests at
+  8640 saved/reopened without a payment. Fully-paid late Corporate10->8 at BOTH
+  venues saves bar3240 (tickets2880+grat360), remaining gratuity1440, unchanged
+  paid16200, no reason/acknowledgement. Rasmus matrix also exercised unpaid and
+  partial-payment reductions; zero released paid credit is not a bar transfer.
+  Final UI prevents offering an unfunded bar allocation. No Production rows changed.
+- Build: standard Turbopack command failed on CSS-worker port binding denied by
+  the local execution environment. Supported webpack fallback compiled/typechecked
+  and generated pages successfully. This does NOT prove the existing Turbopack
+  performance budget: its checker rejects the webpack manifest format. Budgets
+  unchanged; do not claim they passed or release on fallback compilation alone.
+- Doctrine and existing task/archive records now expressly retain direct-save
+  semantics. Detail: archive/BOX_OFFICE_OPERATIONAL_AUTHORITY_2026-11-26.md.
+- Outstanding Buyout/multi-zone work completed locally: reuse existing financial
+  component editor and original Corporate zone editor. Named staff explicitly set
+  zone counts and save; total/paid remain agreed values until edited through the
+  same existing financial controls. Buyout current count/allocation/ticket entitlement
+  stay synchronised. Existing contract/package snapshots and receipts remain intact.
+  Financial correction reuses saved package VAT/base proportions and updates current
+  Buyout composition/reporting, without inventing tax or rewriting the original deal.
+- Exact manual zone/table occupancy agreements persist for four-person booths;
+  maximum/collision/venue/capacity checks stay enforced. Edit Guest Count directs
+  mixed-zone named staff to the existing zone editor instead of an Accounts blocker.
+- Outstanding verification only: five new focused tests pass; authenticated actual
+  UI/API/SQL price/count/table save/reopen passes for Buyout and Corporate at BOTH
+  venues (four cases), including physical booth4, guests10->8, total13250/paid5000/
+  outstanding8250. Five SQL rejection/integrity checks pass; no partial writes.
+  Earlier60 tests reused, NOT rerun. Current TypeScript/lint/diff checks pass.
+- Local Turbopack port restriction is handled by the existing Vercel build environment
+  and its UNCHANGED npm build/performance gate; no alternate manifest acceptance,
+  budget raise or compiler/budget configuration change. Production READY/alias,
+  actual budget figures and scoped migration readback still required below.
+- Migration20261126180000 is now installed transactionally after original-function
+  drift checks and rollback-only verification. Readback passes: all eight real active
+  identities/all-venue scopes resolve authority; anon/authenticated cannot execute
+  the service-only component function. Staff/config, Rasmus booking, payments,
+  tickets and seating fingerprints match before. Template body unchanged; subject
+  is now `{{bug_reference}} resolved`. No Nomza/Tao active accounts found.
+  Application commit/push/READY/budget/alias verification follows; not complete yet.
+
+---
+
 # Staff Issue Resolution Notifications And Elapsed Time
 
 STATUS: RELEASED / READY; LIVE ADMIN SAVE AND ONE REPORTER EMAIL VERIFIED

@@ -119,6 +119,7 @@ export async function loadBookingManagementContext(
   serviceClient: SupabaseClient,
   bookingReference: string,
   now = new Date(),
+  operationalAuthority = false,
 ) {
   const { data: rawBooking, error: bookingError } = await serviceClient
     .from("bookings")
@@ -130,7 +131,8 @@ export async function loadBookingManagementContext(
   const booking = rawBooking as BookingRow;
   const { data: buyout, error: buyoutError } = await serviceClient.from("corporate_buyouts").select("id").eq("booking_id", booking.id).maybeSingle();
   if (buyoutError) throw buyoutError;
-  if (buyout || booking.section === "Full Show Buyout" || parseMetadata(booking.notes)?.valueAllocation || booking.notes?.includes('"fixed-buyout-package"')) {
+  const retainedAgreement = Boolean(buyout || booking.section === "Full Show Buyout" || parseMetadata(booking.notes)?.valueAllocation || booking.notes?.includes('"fixed-buyout-package"'));
+  if (retainedAgreement && !operationalAuthority) {
     throw new Error("CONTRACTUAL_CANCELLATION_REVIEW_REQUIRED");
   }
 
@@ -183,6 +185,14 @@ export async function loadBookingManagementContext(
     refunds,
     totalAmount: Number(booking.total_amount),
   });
+  if (retainedAgreement && operationalAuthority) {
+    // Cancelling attendance is not permission to reprice/refund an agreement.
+    Object.assign(policy, { automaticRefundEligible: false, refundableAmount: 0,
+      forfeitedAmount: Number(metadata?.valueAllocation?.forfeitedAmount ?? 0) + Number(metadata?.valueAllocation?.gratuityForfeitedAmount ?? 0),
+      manualRefundRequired: Number(booking.amount_paid) > 0,
+      refundState: Number(booking.amount_paid) > 0 ? "manual-refund-required" : "no-refund",
+      policySummary: "Existing payments and agreed financial allocations stay unchanged. No refund is issued." });
+  }
   const guestSelfServiceEligible =
     bookingKind === "standard" &&
     isGuestManageableStandardBooking({

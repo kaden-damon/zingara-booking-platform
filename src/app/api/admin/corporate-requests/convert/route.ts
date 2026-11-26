@@ -1,4 +1,5 @@
 import { rolePermissions } from "@/lib/zingaraAccess";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import { getTableBookingMaximum } from "@/lib/physicalTables";
 import {
   loadActiveCorporateImportDuplicates,
@@ -150,7 +151,7 @@ export async function POST(request: Request) {
   const requestId = body.requestId?.trim();
   const restrictedShowApprovalReason = normalizeInternalShowApprovalReason(
     body.restrictedShowApprovalReason,
-  );
+  ) || (hasBookingOperationalAuthority(auth.staffProfile) ? "Authorised Box Office performance selection." : "");
 
   if (!requestId || !clientBooking?.reference) {
     return Response.json(

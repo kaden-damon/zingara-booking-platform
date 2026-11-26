@@ -145,6 +145,7 @@ test("reporter notes allow two simple sentences, not technical findings", () => 
 test("complete authenticated management save, branded send, log and reopen", async () => {
   reset(); await complete();
   assert.equal(sent.length, 1); assert.equal(sent[0].to, reporter.email);
+  assert.equal(sent[0].subject, "BUG-FIXTURE resolved");
   assert.match(String(sent[0].html), /data-zingara-customer-email="true"/);
   assert.match(String(sent[0].html), /Resolved in 1 hour 24 minutes/);
   assert.match(String(sent[0].html), /background:#d8c36a/);

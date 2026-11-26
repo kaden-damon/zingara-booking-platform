@@ -1,4 +1,5 @@
 import { canProcessRefund } from "@/lib/refundAuthorization";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import { getStaffVenueScopeLabel } from "@/lib/staffLocations";
 import {
   getAdminRoleFromName,
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
   return Response.json(
     {
       staff: {
+        operationalAuthority: hasBookingOperationalAuthority(auth.staffProfile),
         canProcessRefund: canProcessRefund(
           auth.staffProfile,
           isSuperAdminProfile(auth.staffProfile),

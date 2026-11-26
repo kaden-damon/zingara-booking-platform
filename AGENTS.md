@@ -79,3 +79,28 @@ superseding baseline). Read `.codex/README.md` and `.codex/CURRENT_TASK.md` firs
 Frontend 2.0 / Phase 50.9 remains strictly isolated: do not modify, merge, deploy
 or connect it to live services without explicit approval. Staff two-factor
 authentication is deferred and is not authorised by this governance exercise.
+
+## Box Office Operational Authority (26 November 2026)
+
+Fatima, Lisa, Michael, Vanessa, Sharon, Rasmus, Hannah, Nosi, Nomza and Tao are
+authorised for full booking operations and commercial adjustments at all venues.
+Resolve existing active identities, not names alone; never create duplicate
+accounts or extend this authority to unrelated staff. Verified identity bindings
+and coverage are recorded in the current operational-authority task archive.
+Nomza/Tao currently have no identified active accounts; provision separately and
+verify identity before adding their bindings. Existing account roles are retained.
+
+Latest approval supersedes warn/allow/reason requirements: named authorised staff
+make the change and save directly. No commercial warning acknowledgement, extra
+confirmation, mandatory reason or additional approval. Automatically audit actual
+staff identity, time, original/revised values and financial consequences through
+the existing Timeline. Do not invent a personal reason or hide original evidence.
+
+This applies across ALL existing Box Office workflows, not an exhaustive example
+list. Preserve existing refund authority, restricted accounting approvals,
+Kaden/Fatima permanent seating/capacity controls, public booking rules and genuine
+security/data-integrity guards. Commercial safeguards must offer a safe operational
+path rather than an Accounts/developer-only blocker. Preserve true payment evidence,
+accurate components, locks, conflicting-assignment protection and duplicate prevention;
+never automatically split guests or invent additional public seats. Verify complete
+authenticated saves/reopens with safe fixtures, not visibility/builds alone.

@@ -259,6 +259,7 @@ type PromoValidationPreview = {
 
 type ManualCheckoutStaffResponse = {
   staff?: {
+    operationalAuthority?: boolean;
     name: string;
     permissions?: string[];
     role: string;
@@ -492,6 +493,7 @@ function isAvailableForBooking(
   isPublicSalesOpen = true,
   authoritativeRemainingSeats?: number,
   venue?: string | null,
+  operationalAuthority = false,
 ) {
   const guestLimits = isInternalCorporate
     ? option
@@ -500,8 +502,8 @@ function isAvailableForBooking(
   return getBookingSeatingEligibility({
     isInternalCorporate,
     isPublicSalesOpen: isInternalCorporate || isPublicSalesOpen,
-    maxGuests: guestLimits.maxGuests,
-    minGuests: guestLimits.minGuests,
+    maxGuests: operationalAuthority ? 19 : guestLimits.maxGuests,
+    minGuests: operationalAuthority ? 1 : guestLimits.minGuests,
     partySize: guests,
     remainingSeats: getRemainingSeats(
       option,
@@ -523,6 +525,7 @@ function getAvailabilityState(
   isPublicSalesOpen = true,
   authoritativeRemainingSeats?: number,
   venue?: string | null,
+  operationalAuthority = false,
 ) {
   const remainingSeats = getRemainingSeats(
     option,
@@ -537,8 +540,8 @@ function getAvailabilityState(
     hasExplicitTableAssignment,
     isInternalCorporate,
     isPublicSalesOpen: isInternalCorporate || isPublicSalesOpen,
-    maxGuests: guestLimits.maxGuests,
-    minGuests: guestLimits.minGuests,
+    maxGuests: operationalAuthority ? 19 : guestLimits.maxGuests,
+    minGuests: operationalAuthority ? 1 : guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
     supportsMultiTableFulfilment: isInternalCorporate && supportsMultiTableBookingFulfilment(option.id),
@@ -550,8 +553,8 @@ function getAvailabilityState(
     isInternalCorporate,
     isPublicSalesOpen: isInternalCorporate || isPublicSalesOpen,
     isLimited,
-    maxGuests: guestLimits.maxGuests,
-    minGuests: guestLimits.minGuests,
+    maxGuests: operationalAuthority ? 19 : guestLimits.maxGuests,
+    minGuests: operationalAuthority ? 1 : guestLimits.minGuests,
     partySize: guests,
     remainingSeats,
     supportsMultiTableFulfilment: isInternalCorporate && supportsMultiTableBookingFulfilment(option.id),
@@ -827,6 +830,7 @@ export default function BookingPage({
     });
   const [attendingGuestName, setAttendingGuestName] = useState<string | undefined>();
   const [customerNotes, setCustomerNotes] = useState("");
+  const [operationalAuthority, setOperationalAuthority] = useState(false);
   const [secretGuestListShowId, setSecretGuestListShowId] = useState("");
   const [secretGuestListEnabled, setSecretGuestListEnabled] = useState(false);
   const [bookingReference, setBookingReference] =
@@ -1128,7 +1132,7 @@ export default function BookingPage({
     manualCheckoutRole === "box-office-manager" ||
     manualCheckoutRole === "super-admin";
   const restrictedShowApprovalReady =
-    !internalShowDecision.requiresManagementApproval ||
+    operationalAuthority || !internalShowDecision.requiresManagementApproval ||
     (canApproveRestrictedShow &&
       isInternalShowApprovalReasonValid(restrictedShowApprovalReason));
   const requiresFullPayment = isFullPaymentOnlyPolicy(
@@ -1503,6 +1507,7 @@ export default function BookingPage({
         manualCheckoutRole !== "none" || publicSalesOpenByZone[zone.id] !== false,
         remainingSeatsByZone[zone.id],
         selectedEntryLocation,
+        operationalAuthority,
       ),
     );
   const canJoinWaitlist =
@@ -1563,6 +1568,7 @@ export default function BookingPage({
                 true,
                 remainingSeatsByZone[zone.id],
                 selectedEntryLocation,
+                operationalAuthority,
               ),
           );
         })
@@ -1577,6 +1583,7 @@ export default function BookingPage({
               publicSalesOpenByZone[selectedZone.id] !== false,
             remainingSeatsByZone[selectedZone.id],
             selectedEntryLocation,
+            operationalAuthority,
           ),
   );
   const complimentarySubmissionEligibility =
@@ -2013,6 +2020,7 @@ export default function BookingPage({
         manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
         remainingSeatsByZone[currentZone.id],
         selectedEntryLocation,
+        operationalAuthority,
       )
         ? null
         : currentZone,
@@ -2028,6 +2036,7 @@ export default function BookingPage({
         manualCheckoutRole !== "none" || publicSalesOpenByZone[currentZone.id] !== false,
         remainingSeatsByZone[currentZone.id],
         selectedEntryLocation,
+        operationalAuthority,
       )
         ? null
         : currentZone,
@@ -2471,6 +2480,7 @@ export default function BookingPage({
               ? "box-office-manager"
               : "staff",
         );
+        setOperationalAuthority(payload.staff.operationalAuthority === true);
         return getVenueSettings();
       })
       .then((settings) => {
@@ -2834,6 +2844,7 @@ export default function BookingPage({
         manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
         remainingSeatsByZone[selectedZone.id],
         selectedEntryLocation,
+        operationalAuthority,
       )
     ) {
       return;
@@ -3167,6 +3178,7 @@ export default function BookingPage({
         manualCheckoutRole !== "none" || publicSalesOpenByZone[selectedZone.id] !== false,
         remainingSeatsByZone[selectedZone.id],
         selectedEntryLocation,
+        operationalAuthority,
       )
     ) {
       return;
@@ -3501,6 +3513,7 @@ export default function BookingPage({
         true,
         remainingSeatsByZone[selectedZone.id],
         selectedEntryLocation,
+        operationalAuthority,
       )
     ) {
       return;
@@ -3708,6 +3721,7 @@ export default function BookingPage({
       manualCheckoutRole !== "none" || publicSalesOpenByZone[option.id] !== false,
       remainingSeatsByZone[option.id],
       selectedEntryLocation,
+      operationalAuthority,
     );
 
     return {
@@ -5949,6 +5963,7 @@ export default function BookingPage({
                 manualCheckoutRole !== "none" || publicSalesOpenByZone[previewSeatingZone.id] !== false,
                 remainingSeatsByZone[previewSeatingZone.id],
                 selectedEntryLocation,
+                operationalAuthority,
               );
               const staffAvailability = isStaffBookingJourney
                 ? getStaffZoneAvailability(
@@ -6916,7 +6931,7 @@ export default function BookingPage({
               ) : (
                 <>
                   {manualCheckoutRole !== "none" &&
-                    internalShowDecision.label !== "OPEN" && (
+                    !operationalAuthority && internalShowDecision.label !== "OPEN" && (
                       <div className="mb-4 rounded-2xl border border-amber-300/30 bg-amber-950/20 p-4">
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-200">
                           {internalShowDecision.label}
@@ -6927,7 +6942,7 @@ export default function BookingPage({
                         {internalShowDecision.requiresManagementApproval &&
                           (canApproveRestrictedShow ? (
                             <label className="mt-3 grid gap-2 text-sm text-zinc-300">
-                              Management approval reason
+                              Exception reason
                               <textarea
                                 rows={2}
                                 maxLength={500}

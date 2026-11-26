@@ -1,4 +1,5 @@
 import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import {
   loadBookingManagementContext,
   toPublicCancellationPreview,
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
     if (!bookingReference || !body.action) {
       return Response.json({ error: "Booking reference and action are required." }, { status: 400 });
     }
-    const context = await loadBookingManagementContext(auth.serviceClient, bookingReference);
+    const context = await loadBookingManagementContext(auth.serviceClient, bookingReference, new Date(), hasBookingOperationalAuthority(auth.staffProfile));
     if (!context) {
       return Response.json({ error: "Booking could not be resolved." }, { status: 404 });
     }
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    const reason = body.reason?.trim();
+    const reason = body.reason?.trim() || (hasBookingOperationalAuthority(auth.staffProfile) ? "Authorised Box Office booking cancellation." : "");
     if (!reason || reason.length < 3 || reason.length > 255) {
       return Response.json({ error: "A cancellation reason is required." }, { status: 400 });
     }

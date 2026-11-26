@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { operationalFinancialFields, validateOperationalFinancialComponents, type OperationalFinancialComponents } from "@/lib/bookingOperationalAuthority";
 
 import {
   getReconciledPaymentStatus,
@@ -18,6 +19,8 @@ import { fetchSupabaseApi } from "@/lib/supabase/apiClient";
 import { confirmGuestReductionComponents, previewGuestReduction, type GuestReductionBasis, type GuestReductionDisposition } from "@/lib/guestReductionPolicy";
 
 export type BookingReconciliationDetails = {
+  operationalAuthority?: boolean;
+  financialComponents?: OperationalFinancialComponents;
   booking: {
     amountPaid: number;
     balanceOutstanding: number;
@@ -27,6 +30,7 @@ export type BookingReconciliationDetails = {
     complimentaryCategory: "standard" | "media" | "tradex" | null;
     depositAmount: number;
     guestCount: number;
+    zoneEntitlements?: { zoneId: string; pax: number }[] | null;
     paymentStatus: string;
     tableCapacity: number | null;
     tableCode: string | null;
@@ -104,10 +108,12 @@ function ModalFrame({
 }
 
 function MoneyInput({
+  disabled = false,
   label,
   onChange,
   value,
 }: {
+  disabled?: boolean;
   label: string;
   onChange: (value: number) => void;
   value: number;
@@ -119,6 +125,7 @@ function MoneyInput({
         <span className="text-zinc-400">R</span>
         <input
           type="number"
+          disabled={disabled}
           min="0"
           step="0.01"
           value={value}
@@ -141,6 +148,7 @@ export function FinancialReconciliationModal(
   props: BaseProps & {
     amountPaid: number;
     onSave: (draft: {
+      financialComponents?: OperationalFinancialComponents;
       amountPaid: number;
       legacyInvoiceEvidence?: {
         discountAmount?: number;
@@ -158,7 +166,7 @@ export function FinancialReconciliationModal(
   const { booking } = props.details;
   const [draft, setDraft] = useState({
     amountPaid: props.amountPaid,
-    reason: props.reason,
+    reason: props.reason || (props.details.operationalAuthority ? "Authorised Box Office financial adjustment." : ""),
     totalAmount: props.totalAmount,
     sourceDocument: "",
     sourceGratuityAmount: 0,
@@ -169,6 +177,9 @@ export function FinancialReconciliationModal(
     booking.bookingOrigin === "data_import" &&
     booking.paymentStatus === "comp_vip" &&
     !props.details.retainedValueBasis;
+  const [financialComponents, setFinancialComponents] = useState(props.details.financialComponents);
+  const operational = props.details.operationalAuthority && !requiresImportedEvidence && financialComponents;
+  const componentsValid = !operational || validateOperationalFinancialComponents(financialComponents, draft.totalAmount);
   const outstanding = Math.max(toMoney(draft.totalAmount - draft.amountPaid), 0);
   const validation = validateFinancialReconciliation(draft);
   const corporatePrice = props.details.corporateFixedTotal;
@@ -195,10 +206,22 @@ export function FinancialReconciliationModal(
         </div>
       </div>
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <MoneyInput label={corporatePrice ? "Agreed Corporate Total" : "Total Booking Amount"} value={draft.totalAmount} onChange={(totalAmount) => setDraft((current) => ({ ...current, totalAmount }))} />
-        <MoneyInput label="Total Amount Paid" value={draft.amountPaid} onChange={(amountPaid) => setDraft((current) => ({ ...current, amountPaid }))} />
+        <MoneyInput label={corporatePrice ? "Agreed Corporate Total" : "Total Booking Amount"} value={draft.totalAmount} onChange={(totalAmount) => {
+          setDraft((current) => ({ ...current, totalAmount }));
+          if (operational) setFinancialComponents((current) => current ? { ...current, ticketAmount: toMoney(current.ticketAmount + totalAmount - draft.totalAmount) } : current);
+        }} />
+        <MoneyInput disabled={Boolean(operational)} label="Total Amount Paid" value={draft.amountPaid} onChange={(amountPaid) => setDraft((current) => ({ ...current, amountPaid }))} />
       </div>
       <p className="mt-2 text-xs text-zinc-500">Total Booking Amount is the total value of this booking.</p>
+      {operational && <details className="mt-4 rounded-xl border border-[#D8C36A]/25 p-4">
+        <summary className="cursor-pointer text-sm font-medium text-[#D8C36A]">Agreed financial breakdown</summary>
+        <p className="mt-2 text-xs text-zinc-400">Existing payments stay unchanged.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {operationalFinancialFields.filter((key) => ["ticketAmount", "gratuityAmount", "barTabAmount", "otherAmount", "discountAmount"].includes(key) || Number(props.details.financialComponents?.[key]) > 0).map((key) => <MoneyInput key={key} label={{ ticketAmount: "Tickets", gratuityAmount: "Show gratuity", barTabAmount: "Prepaid bar", otherAmount: "Other charges", discountAmount: "Agreed deduction (not a payment)", forfeitedAmount: "Ticket forfeiture", gratuityForfeitedAmount: "Gratuity forfeiture", refundReviewAmount: "Refund reserved (not issued)", gratuityReviewAmount: "Gratuity reserved" }[key]}
+            value={financialComponents[key]} onChange={(amount) => setFinancialComponents((current) => current ? { ...current, [key]: amount } : current)} />)}
+        </div>
+        {!componentsValid && <p role="alert" className="mt-3 text-sm text-red-200">The breakdown must match the total.</p>}
+      </details>}
       {requiresImportedEvidence && (
         <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/15 p-4">
           <p className="text-xs font-semibold uppercase text-amber-200">Imported Quote / Invoice</p>
@@ -221,12 +244,12 @@ export function FinancialReconciliationModal(
           <p key={item.label}>{item.label}: R{item.amount.toFixed(2)}</p>
         )) : <p>No legacy payment evidence recorded.</p>}
       </div>
-      <label className="mt-4 block">
+      {!props.details.operationalAuthority && <label className="mt-4 block">
         <span className="mb-2 block text-xs font-semibold uppercase text-zinc-400">Reason for adjustment *</span>
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
-      </label>
+      </label>}
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      <button type="button" disabled={props.isSaving || Boolean(validation) || (requiresImportedEvidence && (!draft.sourceDocument.trim() || draft.discountAmount < 0 || toMoney(draft.sourceTicketAmount + draft.sourceGratuityAmount - draft.discountAmount) !== toMoney(draft.totalAmount)))} onClick={() => props.onSave({ amountPaid: draft.amountPaid, reason: draft.reason, totalAmount: draft.totalAmount, legacyInvoiceEvidence: requiresImportedEvidence ? { discountAmount: draft.discountAmount, sourceDocument: draft.sourceDocument, sourceGratuityAmount: draft.sourceGratuityAmount, sourceTicketAmount: draft.sourceTicketAmount } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+      <button type="button" disabled={props.isSaving || Boolean(validation) || !componentsValid || (requiresImportedEvidence && (!draft.sourceDocument.trim() || draft.discountAmount < 0 || toMoney(draft.sourceTicketAmount + draft.sourceGratuityAmount - draft.discountAmount) !== toMoney(draft.totalAmount)))} onClick={() => props.onSave({ financialComponents: operational ? financialComponents : undefined, amountPaid: draft.amountPaid, reason: draft.reason, totalAmount: draft.totalAmount, legacyInvoiceEvidence: requiresImportedEvidence ? { discountAmount: draft.discountAmount, sourceDocument: draft.sourceDocument, sourceGratuityAmount: draft.sourceGratuityAmount, sourceTicketAmount: draft.sourceTicketAmount } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "Saving..." : corporatePrice ? "Confirm agreed price" : "Save payment correction"}
       </button>
     </ModalFrame>
@@ -262,7 +285,7 @@ export function GuestCountReconciliationModal(
     guestCount: props.guestCount,
     manualPaymentBasis: "" as LegacyGuestIncreasePaymentBasis | "",
     manualUnitAmount: 0,
-    reason: props.reason,
+    reason: props.reason || (props.details.operationalAuthority ? "Authorised Box Office guest count adjustment." : ""),
     transferRetainedValue: false,
   });
   const [operationId] = useState(() => crypto.randomUUID());
@@ -300,19 +323,29 @@ export function GuestCountReconciliationModal(
   const savedBasis = props.details.reductionBasis;
   const confirmedBasis = savedBasis?.componentConfirmationRequired ? confirmGuestReductionComponents(savedBasis, {
     ...components,
+    ...(props.details.operationalAuthority ? { confirmed: true, sourceDocument: "Authorised Box Office financial breakdown." } : {}),
     ticketAmount: components.ticketAmount.trim() ? Number(components.ticketAmount) : NaN,
     gratuityAmount: components.gratuityAmount.trim() ? Number(components.gratuityAmount) : NaN,
     barTabAmount: components.barTabAmount.trim() ? Number(components.barTabAmount) : NaN,
     otherAmount: components.otherAmount.trim() ? Number(components.otherAmount) : NaN,
   }) : null;
-  const basis = confirmedBasis ?? savedBasis;
+  const rawBasis = confirmedBasis ?? savedBasis;
+  const operationalBasis = rawBasis?.operationalAuthority
+    ? { ...rawBasis, operationalException: { waivePenalty: true, transferGratuity: reductionDisposition === "bar-credit" } } : null;
+  const requestedOperationalPreview = operationalBasis ? previewGuestReduction(operationalBasis, draft.guestCount, reductionDisposition) : null;
+  const hasOperationalAllocation = reductionDisposition === "bar-credit"
+    ? Number(requestedOperationalPreview?.barCreditAmount) > 0
+    : reductionDisposition === "outstanding-balance" && Number(requestedOperationalPreview?.outstandingBalanceAllocationAmount) > 0;
+  const basis = hasOperationalAllocation ? operationalBasis : rawBasis;
   const isBuyoutReduction = Boolean(basis?.blockedReason?.startsWith("Buyout:"));
   const isZeroCompReduction = booking.paymentStatus === "comp_vip" && booking.totalAmount === 0 && booking.amountPaid === 0;
   const defaultReductionPreview = basis ? previewGuestReduction(basis, draft.guestCount) : null;
-  const effectiveDisposition = defaultReductionPreview?.eligibleTicketAmount === 0 ? "review-refund" : reductionDisposition;
+  const effectiveDisposition = !hasOperationalAllocation && defaultReductionPreview?.eligibleTicketAmount === 0 ? "review-refund" : reductionDisposition;
   const reductionPreview = effectiveDisposition === "review-refund" ? defaultReductionPreview
     : basis ? previewGuestReduction(basis, draft.guestCount, effectiveDisposition) : null;
   const unpaidReduction = booking.amountPaid === 0 && reductionPreview?.fullRefundWindow === true;
+  const operationalBarAvailable = rawBasis?.operationalAuthority && Number(previewGuestReduction({ ...rawBasis,
+    operationalException: { waivePenalty: true, transferGratuity: true } }, draft.guestCount, "bar-credit")?.barCreditAmount) > 0;
   const reductionBlocked = isReduction && !isBuyoutReduction && !isZeroCompReduction && !reductionPreview;
   const isComplimentaryIncrease =
     financials.addedGuests > 0 &&
@@ -485,23 +518,23 @@ export function GuestCountReconciliationModal(
               </label>
             ))}
           </div>
-          <label className="mt-3 block text-xs text-zinc-400">Invoice / agreement reference
+          {!props.details.operationalAuthority && <><label className="mt-3 block text-xs text-zinc-400">Invoice / agreement reference
             <input maxLength={500} value={components.sourceDocument} required
               onChange={event => setComponents(current => ({ ...current, sourceDocument: event.target.value, confirmed: false }))}
               className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-black px-3 text-sm text-white outline-none focus:border-[#D8C36A]" />
-          </label>
-          <label className="mt-3 flex min-h-11 items-center gap-3 text-xs text-zinc-300">
+          </label></>}
+          {!props.details.operationalAuthority && <label className="mt-3 flex min-h-11 items-center gap-3 text-xs text-zinc-300">
             <input type="checkbox" checked={components.confirmed} onChange={event => setComponents(current => ({ ...current, confirmed: event.target.checked }))} />
             I checked these amounts against the invoice or agreed breakdown.
-          </label>
-          {!confirmedBasis && <p className="mt-2 text-xs text-amber-200">Complete and confirm the breakdown to review the reduction.</p>}
+          </label>}
+          {!confirmedBasis && <p className="mt-2 text-xs text-amber-200">Enter a breakdown matching the total.</p>}
         </section>
       )}
       {isReduction && !isBuyoutReduction && !isZeroCompReduction && !savedBasis?.componentConfirmationRequired && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
       {reductionPreview && (
         <section className="mt-4 rounded-xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
           <p className="text-xs font-semibold uppercase text-[#F2D66C]">{unpaidReduction ? "Guest reduction" : "Cancellation Allocation"}</p>
-          <p className="mt-2 text-xs text-zinc-400">{basis?.bookingKind === "corporate" ? "Corporate · 7 days" : "Standard · 5 days"} · {reductionPreview.fullRefundWindow ? "Within permitted period" : "Late reduction"}. Forfeited amounts cannot become bar credit.</p>
+          <p className="mt-2 text-xs text-zinc-400">{basis?.bookingKind === "corporate" ? "Corporate · 7 days" : "Standard · 5 days"} · {reductionPreview.fullRefundWindow ? "Within permitted period" : "Late reduction"}.{!rawBasis?.operationalAuthority && " Forfeited amounts cannot become bar credit."}</p>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <p>Guests removed<br /><strong>{booking.guestCount - draft.guestCount}</strong></p>
             <p>Remaining tickets<br /><strong>{formatMoney(reductionPreview.ticketAmount)}</strong></p>
@@ -516,21 +549,21 @@ export function GuestCountReconciliationModal(
             <p>Outstanding<br /><strong>{formatMoney(reductionPreview.newOutstanding)}</strong></p>
             {reductionPreview.outstandingBalanceAllocationAmount > 0 && <p>Allocated towards balance<br /><strong>{formatMoney(reductionPreview.outstandingBalanceAllocationAmount)}</strong></p>}
           </div>
-          {reductionPreview.eligibleTicketAmount > 0 && <label className="mt-4 block text-xs text-zinc-300">Eligible ticket value only
+          {(reductionPreview.eligibleTicketAmount > 0 || operationalBarAvailable) && <label className="mt-4 block text-xs text-zinc-300">Cancellation allocation
             <select value={effectiveDisposition} onChange={(event) => setReductionDisposition(event.target.value as GuestReductionDisposition)} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-black px-3">
               <option value="review-refund">Refund through existing authorised process</option>
               <option value="bar-credit">Transfer eligible ticket value to bar</option>
-              {reductionPreview.fullRefundWindow && (reductionPreview.newOutstanding > 0 || reductionPreview.outstandingBalanceAllocationAmount > 0) && <option value="outstanding-balance">Allocate towards outstanding balance</option>}
+              {(reductionPreview.fullRefundWindow || rawBasis?.operationalAuthority) && (reductionPreview.newOutstanding > 0 || reductionPreview.outstandingBalanceAllocationAmount > 0) && <option value="outstanding-balance">Allocate towards outstanding balance</option>}
             </select>
           </label>}
-          <p className="mt-3 text-xs text-zinc-400">{unpaidReduction ? "No payment received. The unpaid balance will be reduced; no refund or bar credit is created." : "Original receipts remain unchanged. Released unpaid ticket balances are removed; paid value is retained as shown pending any authorised refund. No automatic refund or additional gratuity charge. Cancelled gratuity is never transferred to bar."}</p>
+          <p className="mt-3 text-xs text-zinc-400">{unpaidReduction ? "No payment received. The unpaid balance will be reduced; no refund or bar credit is created." : rawBasis?.operationalAuthority ? "Existing payments stay unchanged. A bar transfer includes the cancelled guests' eligible paid gratuity." : "Original receipts remain unchanged. Released unpaid ticket balances are removed; paid value is retained as shown pending any authorised refund. No automatic refund or additional gratuity charge. Cancelled gratuity is never transferred to bar."}</p>
         </section>
       )}
       <p className="mt-2 text-xs text-zinc-500">If the table no longer fits, the booking will move safely to Needs a table.</p>
-      <label className="mt-4 block">
+      {!props.details.operationalAuthority && <label className="mt-4 block">
         <span className="mb-2 block text-xs font-semibold uppercase text-zinc-400">Reason for change *</span>
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
-      </label>
+      </label>}
       {(submissionError || props.error) && <p id="guest-count-reconciliation-error" role="alert" className="mt-3 text-sm text-red-200">{submissionError || props.error}</p>}
       {!props.result && <button type="button" aria-describedby={submissionError ? "guest-count-reconciliation-error" : undefined} disabled={props.isSaving || Boolean(validation) || draft.guestCount === booking.guestCount || !manualFinancialsValid} onClick={submitGuestCount} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "UPDATING..." : props.canOverrideTwoSeaterLimit ? "OVERRIDE LIMIT" : "CONFIRM GUEST COUNT"}

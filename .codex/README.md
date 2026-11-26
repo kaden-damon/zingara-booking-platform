@@ -1,5 +1,19 @@
 # Codex Task Instructions
 
+## Box Office Direct-Save Authority
+
+The 26 November approval and latest superseding follow-up in AGENTS.md govern
+all existing Box Office commercial/operational workflows. Verified named active
+staff save directly: no mandatory reason, commercial acknowledgement, extra
+commercial confirmation or additional approval. Keep server-side identity checks
+and automatically record actual actor, time, before/after and financial effects
+in the existing Timeline. Do not attribute generated audit descriptions to a
+personal statement by staff. Refund/accounting authority, permanent capacity
+controls, public rules and genuine security/payment/seating integrity remain.
+Coverage, missing accounts and release evidence belong in
+archive/BOX_OFFICE_OPERATIONAL_AUTHORITY_2026-11-26.md. An incomplete workflow
+matrix or unverified save/reopen is not a completed operational release.
+
 ## Reported Issue Completion
 
 After operational verification, complete reported issues through the existing

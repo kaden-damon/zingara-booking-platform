@@ -1,4 +1,5 @@
 import { notifyAppleWalletBooking } from "@/lib/appleWalletSync";
+import { hasBookingOperationalAuthority, validateOperationalFinancialComponents, type OperationalFinancialComponents } from "@/lib/bookingOperationalAuthority";
 import { validateCorporateBuyoutAgreement, type CorporateBuyoutAgreement } from "@/lib/corporateBuyoutAgreement";
 import {
   toMoney,
@@ -112,7 +113,7 @@ export async function GET(request: Request) {
   try {
     const { data: booking, error } = await auth.serviceClient
       .from("bookings")
-      .select("id,booking_reference,booking_origin,booking_source,notes,guest_count,payment_status,section,service_fee,subtotal_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code,capacity)")
+      .select("id,booking_reference,booking_origin,booking_source,notes,guest_count,zone_entitlements,payment_status,section,service_fee,subtotal_amount,discount_amount,addons_total,total_amount,amount_paid,balance_outstanding,table_id,updated_at,show_tables:table_id(table_code,capacity)")
       .eq("booking_reference", bookingReference)
       .maybeSingle();
 
@@ -172,8 +173,23 @@ export async function GET(request: Request) {
     const allocationEvidence = legacyRows.find(
       (row) => row.source_system === "manual_invoice",
     );
+    const operationalAuthority = hasBookingOperationalAuthority(auth.staffProfile);
+    const allocation = bookingMetadata?.valueAllocation as Record<string, number> | undefined;
+    const discount = Number(booking.discount_amount ?? bookingMetadata?.discountAmount ?? 0);
+    const financialComponents = {
+      gratuityAmount: Number(allocation?.ticketGratuityAmount ?? allocationEvidence?.ticket_gratuity_amount ?? booking.service_fee),
+      barTabAmount: Number(allocation?.barTabAmount ?? allocationEvidence?.bar_tab_paid_amount ?? 0),
+      otherAmount: Number(allocation?.otherAmount ?? (bookingMetadata?.operationalFinancialAgreement as Record<string, unknown> | undefined)?.otherAmount ??
+        (Number(booking.addons_total) + Number((bookingMetadata?.pricingProvenance as Record<string, unknown> | undefined)?.bookingFeeAmount ?? 0) + Number(allocationEvidence?.bar_gratuity_amount ?? 0))),
+      forfeitedAmount: Number(allocation?.forfeitedAmount ?? 0), gratuityForfeitedAmount: Number(allocation?.gratuityForfeitedAmount ?? 0),
+      refundReviewAmount: Number(allocation?.refundReviewAmount ?? 0), gratuityReviewAmount: Number(allocation?.gratuityReviewAmount ?? 0),
+      discountAmount: discount,
+    };
 
     return Response.json({
+      operationalAuthority,
+      financialComponents: operationalAuthority ? { ...financialComponents, ticketAmount:
+        Number(booking.total_amount) + discount - Object.entries(financialComponents).reduce((sum, [key, value]) => key === "discountAmount" ? sum : sum + value, 0) } : undefined,
       booking: {
         amountPaid: Number(booking.amount_paid),
         balanceOutstanding: Number(booking.balance_outstanding),
@@ -192,6 +208,7 @@ export async function GET(request: Request) {
             ? Number(booking.amount_paid)
             : 0),
         guestCount: Number(booking.guest_count),
+        zoneEntitlements: booking.zone_entitlements,
         paymentStatus: booking.payment_status,
         tableCapacity: table?.capacity === null || table?.capacity === undefined
           ? null
@@ -215,7 +232,7 @@ export async function GET(request: Request) {
         booking.booking_origin === "corporate" &&
         booking.booking_source === "corporate-direct",
       addedGuestPricingBasis,
-      reductionBasis: await loadGuestReductionBasis(auth.serviceClient, booking.id),
+      reductionBasis: await loadGuestReductionBasis(auth.serviceClient, booking.id, auth.staffProfile),
     });
   } catch (error) {
     console.error("[Zingara Reconciliation] Load failed", error);
@@ -242,6 +259,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       action?: "financial" | "guest-count";
+      financialComponents?: OperationalFinancialComponents;
       amountPaid?: number;
       buyoutComponents?: CorporateBuyoutAgreement;
       bookingReference?: string;
@@ -269,7 +287,8 @@ export async function POST(request: Request) {
       twoSeaterOverrideReason?: string;
     };
     const bookingReference = body.bookingReference?.trim().toUpperCase();
-    const reason = body.reason?.trim() ?? "";
+    const reason = body.reason?.trim() || (hasBookingOperationalAuthority(auth.staffProfile)
+      ? "Authorised Box Office booking adjustment." : "");
 
     if (!bookingReference || !body.expectedUpdatedAt) {
       return Response.json({ error: "Booking reference and current revision are required." }, { status: 400 });
@@ -300,10 +319,21 @@ export async function POST(request: Request) {
         error: "This booking changed. Close this window and reopen Edit Guest Count before saving." }, { status: 409 });
     }
     const existingAllocation = parseBookingMetadata(bookingContext?.notes ?? null)?.valueAllocation as { policyApplied?: boolean } | undefined;
-    if (existingAllocation?.policyApplied && body.action === "financial") {
+    const operationalAuthority = hasBookingOperationalAuthority(auth.staffProfile);
+    if (body.financialComponents && (!operationalAuthority || body.action !== "financial")) {
+      return Response.json({ error: "You cannot apply a commercial exception." }, { status: 403 });
+    }
+    if (body.financialComponents && (body.buyoutComponents || body.legacyInvoiceEvidence || body.retainedValueTransfer)) {
+      return Response.json({ error: "Use one financial breakdown for this change." }, { status: 400 });
+    }
+    if (body.financialComponents && (!validateOperationalFinancialComponents(body.financialComponents, Number(body.totalAmount)) ||
+      Number(body.amountPaid) !== Number(bookingContext?.amount_paid))) {
+      return Response.json({ error: "The financial breakdown must match the total. Existing payments cannot be changed here." }, { status: 400 });
+    }
+    if (existingAllocation?.policyApplied && body.action === "financial" && !body.financialComponents) {
       return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error: "This retained cancellation allocation requires component-level Accounts resolution; a total-only edit would lose its forfeiture and refund evidence." }, { status: 409 });
     }
-    if (existingAllocation?.policyApplied && Number(body.guestCount) > Number(bookingContext?.guest_count)) {
+    if (existingAllocation?.policyApplied && Number(body.guestCount) > Number(bookingContext?.guest_count) && !operationalAuthority) {
       return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error: "Accounts must review the existing cancellation allocation before guests can be added." }, { status: 409 });
     }
     if (
@@ -343,7 +373,13 @@ export async function POST(request: Request) {
     const isZeroCompReduction = bookingContext?.payment_status === "comp_vip" &&
       Number(bookingContext.total_amount) === 0 && Number(bookingContext.amount_paid) === 0;
     let reductionBasis = isReduction
-      ? await loadGuestReductionBasis(auth.serviceClient, bookingContext.id) : null;
+      ? await loadGuestReductionBasis(auth.serviceClient, bookingContext.id, auth.staffProfile) : null;
+    if (body.expectedReductionPreview?.operationalException !== undefined) {
+      if (!operationalAuthority || !reductionBasis) return Response.json({ error: "You cannot apply a commercial exception." }, { status: 403 });
+      const exception = body.expectedReductionPreview.operationalException as Record<string, unknown>;
+      if (!exception || typeof exception.waivePenalty !== "boolean" || typeof exception.transferGratuity !== "boolean") return Response.json({ error: "The commercial exception is invalid." }, { status: 400 });
+      reductionBasis = { ...reductionBasis, operationalException: { waivePenalty: exception.waivePenalty, transferGratuity: exception.transferGratuity } };
+    }
     if (reductionBasis?.componentConfirmationRequired) {
       const confirmed = confirmGuestReductionComponents(reductionBasis, body.expectedReductionPreview?.confirmedComponents);
       if (!confirmed) return Response.json({ code: "GUEST_REDUCTION_COMPONENTS_INVALID",
@@ -380,8 +416,9 @@ export async function POST(request: Request) {
     let reviewedNativeIncrease: number | undefined;
     if (body.action === "guest-count" && bookingContext && !isCorporateFixedTotal && !hasManualFinancialBasis &&
       Number(body.guestCount) > Number(bookingContext.guest_count) &&
-      ["admin_staff", "customer_public"].includes(bookingContext.booking_origin ?? "") &&
-      ["admin", "online"].includes(bookingContext.booking_source ?? "")) {
+      ((["admin_staff", "customer_public"].includes(bookingContext.booking_origin ?? "") &&
+      ["admin", "online"].includes(bookingContext.booking_source ?? "")) ||
+        Boolean(parseBookingMetadata(bookingContext.notes)?.operationalFinancialAgreement))) {
       const basis = resolveAddedGuestPricingBasis({
         bookingOrigin: bookingContext.booking_origin,
         metadata: parseBookingMetadata(bookingContext.notes),
@@ -392,7 +429,7 @@ export async function POST(request: Request) {
         amountPaid: Number(bookingContext.amount_paid),
         balanceOutstanding: Number(bookingContext.balance_outstanding),
       });
-      if (basis.paymentBasis === "full" && ["standard-zone", "friends-family", "show-specific"].includes(basis.source)) {
+      if (basis.paymentBasis === "full" && ["standard-zone", "friends-family", "show-specific", "staff-agreed"].includes(basis.source)) {
         const preview = calculateAddedGuestFinancials({ basis,
           currentGuestCount: Number(bookingContext.guest_count), newGuestCount: Number(body.guestCount),
           currentOutstanding: Number(bookingContext.balance_outstanding),
@@ -517,7 +554,7 @@ export async function POST(request: Request) {
     const role = getAdminRoleFromName(roleRow?.name);
     const twoSeaterOverrideReason = normalizeTwoSeaterOverrideReason(
       body.twoSeaterOverrideReason,
-    );
+    ) || (body.guestCount === 2 && operationalAuthority ? "Authorised Box Office guest selection." : "");
     if (
       body.action === "guest-count" &&
       Number(body.guestCount) === 2 &&
@@ -580,6 +617,7 @@ export async function POST(request: Request) {
             p_amount_paid: toMoney(Number(body.amountPaid)),
             p_total_amount: toMoney(Number(body.totalAmount)),
             ...(body.buyoutComponents ? { p_components: body.buyoutComponents } : {}),
+            ...(body.financialComponents ? { p_operational_components: body.financialComponents } : {}),
           }
         : policyReduction
           ? { ...requestMetadata, p_guest_count: Number(body.guestCount),

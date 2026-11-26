@@ -12,6 +12,7 @@ import {
 import { adminIpUndertaking } from "@/lib/adminIpUndertaking";
 import { hasPlatformOwnerBinding } from "@/lib/platformOwnerAccess";
 import { isStaffSessionCurrent } from "@/lib/staffSessionCutoff";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 
 export type RoleRow = {
   description?: string | null;
@@ -480,6 +481,7 @@ export function staffProfileToSession(row: StaffProfileRow, user: User) {
   const adminRole = getAdminRoleFromName(role?.name);
 
   return {
+    operationalAuthority: hasBookingOperationalAuthority(row),
     email: row.email,
     id: user.id,
     staffProfileId: row.id,

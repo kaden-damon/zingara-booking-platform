@@ -715,6 +715,7 @@ export type DemoBooking = {
   pricePerPerson: number;
   complimentaryCategory?: "standard" | "media" | "tradex";
   agreedPriceSource?:
+    | "staff-agreed"
     | "complimentary"
     | "friends-family"
     | "show-specific"
@@ -729,12 +730,14 @@ export type DemoBooking = {
     paymentMethod?: "eft" | "payfast";
     paymentModel: PaymentOption;
     source:
+      | "staff-agreed"
       | "complimentary"
       | "friends-family"
       | "show-specific"
       | "standard-zone"
       | "temporary-table";
   };
+  operationalFinancialAgreement?: import("./bookingOperationalAuthority").OperationalFinancialComponents;
   reservationTableClaims?: Array<{
     capacity: number;
     primary?: boolean;

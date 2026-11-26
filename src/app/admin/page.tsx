@@ -13645,6 +13645,7 @@ export default function AdminDashboardPage({
   }
 
   function getCancellationSummary() {
+    if (currentStaff?.operationalAuthority) return "Authorised Box Office booking cancellation.";
     const trimmedOtherReason = cancellationOtherReason.trim();
 
     if (cancellationReason === "Other") {
@@ -18492,7 +18493,7 @@ export default function AdminDashboardPage({
     }
 
     if (
-      internalDecision.requiresManagementApproval &&
+      !currentStaff?.operationalAuthority && internalDecision.requiresManagementApproval &&
       (!canReconcileBookings ||
         !isInternalShowApprovalReasonValid(
           bookingShowTransfer?.restrictedShowApprovalReason,
@@ -18518,7 +18519,7 @@ export default function AdminDashboardPage({
           bookingShowTransfer?.restrictedShowApprovalReason,
         twoSeaterOverrideReason:
           bookingShowTransfer?.canOverrideTwoSeaterLimit
-            ? bookingShowTransfer.overrideReason
+            ? currentStaff?.operationalAuthority ? "Authorised Box Office performance selection." : bookingShowTransfer.overrideReason
             : undefined,
       });
       const nextBookings = await getBookings();
@@ -19224,6 +19225,10 @@ export default function AdminDashboardPage({
   }
 
   async function openGuestCountReconciliation(booking: DemoBooking) {
+    if (currentStaff?.operationalAuthority && booking.source === "corporate-direct" && getBookingZoneEntitlements(booking).length > 1) {
+      const { focusCorporateZoneEditor } = await import("./CorporateZoneEntitlementEditor");
+      if (focusCorporateZoneEditor(booking.reference)) return;
+    }
     const details = await loadBookingReconciliationDetails(booking);
     if (!details) return;
 
@@ -19239,6 +19244,7 @@ export default function AdminDashboardPage({
   }
 
   async function saveFinancialReconciliation(draft: {
+    financialComponents?: import("@/lib/bookingOperationalAuthority").OperationalFinancialComponents;
     amountPaid: number;
     legacyInvoiceEvidence?: {
       discountAmount?: number;
@@ -19259,6 +19265,7 @@ export default function AdminDashboardPage({
       await fetchSupabaseApi("/api/admin/bookings/reconciliation", {
         body: {
           action: "financial",
+          financialComponents: draft.financialComponents,
           amountPaid: draft.amountPaid,
           bookingReference:
             financialReconciliation.details.booking.bookingReference,
@@ -26018,13 +26025,13 @@ export default function AdminDashboardPage({
               <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
                 <section className="w-full max-w-xl rounded-[2rem] border border-red-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
                   <p className="text-sm font-semibold uppercase tracking-[0.24em] text-red-200">
-                    Reason for cancellation
+                    {currentStaff?.operationalAuthority ? "Cancel booking" : "Reason for cancellation"}
                   </p>
                   <h2 className="mt-3 text-2xl font-bold">
                     {cancellingBooking?.customer.name ?? "Cancel Booking"}
                   </h2>
                   <p className="mt-2 text-sm leading-6 text-zinc-400">
-                    Select the operational reason before cancelling{" "}
+                    {currentStaff?.operationalAuthority ? "Cancel " : "Select the operational reason before cancelling "}
                     {cancellingBooking?.reference ?? "this booking"}.
                   </p>
 
@@ -26063,7 +26070,7 @@ export default function AdminDashboardPage({
                     )}
                   </div>
 
-                  <div className="mt-5 grid gap-2">
+                  {!currentStaff?.operationalAuthority && <div className="mt-5 grid gap-2">
                     {cancellationReasons.map((reason) => (
                       <label
                         key={reason}
@@ -26084,9 +26091,9 @@ export default function AdminDashboardPage({
                         {reason}
                       </label>
                     ))}
-                  </div>
+                  </div>}
 
-                  {requiresOtherReason && (
+                  {requiresOtherReason && !currentStaff?.operationalAuthority && (
                     <label className="mt-4 block">
                       <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
                         Other cancellation notes
@@ -36672,6 +36679,7 @@ export default function AdminDashboardPage({
                     </p>
                     {selectedBuyoutBooking && (
                       <FullShowBuyoutSeatingPlanner
+                        operationalAuthority={currentStaff?.operationalAuthority}
                         key={`${selectedBuyoutBooking.reference}-${selectedBuyoutBooking.updatedAt}-${selectedShow.fullShowBuyout.revision}`}
                         booking={selectedBuyoutBooking}
                         buyout={selectedShow.fullShowBuyout}
@@ -38320,7 +38328,7 @@ export default function AdminDashboardPage({
                     Create Booking
                   </a>
                 )}
-                {canManageBookings && canManageShows && <CorporateBuyoutManager />}
+                {canManageBookings && canManageShows && <CorporateBuyoutManager operationalAuthority={currentStaff?.operationalAuthority} />}
               </div>
             </div>
 
@@ -41030,6 +41038,8 @@ export default function AdminDashboardPage({
                             </div>
                           ) : isCorporateBooking ? (
                             <CorporateZoneEntitlementEditor
+                              editorId={`booking-zones-${booking.reference}`}
+                              allowGuestCountChange={currentStaff?.operationalAuthority}
                               key={`${booking.reference}-${booking.updatedAt}`}
                               assignedClaims={assignedTableClaims}
                               bookingReference={booking.reference}
@@ -41292,7 +41302,7 @@ export default function AdminDashboardPage({
                                 </div>
                               )}
 
-                              {selectedTransferDecision.requiresManagementApproval && (
+                              {!currentStaff?.operationalAuthority && selectedTransferDecision.requiresManagementApproval && (
                                 <label className="mt-4 block rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/5 p-4">
                                   <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
                                     Management approval reason
@@ -41317,7 +41327,7 @@ export default function AdminDashboardPage({
                                 </label>
                               )}
 
-                              {bookingShowTransfer.canOverrideTwoSeaterLimit && (
+                              {!currentStaff?.operationalAuthority && bookingShowTransfer.canOverrideTwoSeaterLimit && (
                                 <label className="mt-4 block rounded-2xl border border-[#D8C36A]/35 bg-[#D8C36A]/5 p-4">
                                   <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-[#F2D66C]">
                                     Override reason
@@ -41368,9 +41378,9 @@ export default function AdminDashboardPage({
                                     bookingIsReadOnly ||
                                     isBookingShowTransferring ||
                                     !bookingShowTransfer.destinationShowId ||
-                                    (bookingShowTransfer.canOverrideTwoSeaterLimit &&
+                                    (!currentStaff?.operationalAuthority && bookingShowTransfer.canOverrideTwoSeaterLimit &&
                                       bookingShowTransfer.overrideReason.trim().length < 3) ||
-                                    (selectedTransferDecision.requiresManagementApproval &&
+                                    (!currentStaff?.operationalAuthority && selectedTransferDecision.requiresManagementApproval &&
                                       (!canReconcileBookings ||
                                         !isInternalShowApprovalReasonValid(
                                           bookingShowTransfer.restrictedShowApprovalReason,
@@ -41556,6 +41566,7 @@ export default function AdminDashboardPage({
 
       {corporateConversionReviewRequest && (
         <CorporateConversionModal
+          operationalAuthority={currentStaff?.operationalAuthority}
           key={corporateConversionReviewRequest.id}
           error={
             corporateConversionStatusRequestId ===

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 
 import {
   buildZoneFloorCapacityPlan,
@@ -238,6 +239,7 @@ async function loadPlan(
     Awaited<ReturnType<typeof requireActiveStaff>>["serviceClient"]
   >,
   showReference: string,
+  operationalAuthority = false,
 ) {
   const { data: showRows, error: showError } = await serviceClient
     .from("shows")
@@ -387,7 +389,7 @@ async function loadPlan(
                 isOverride: table.is_override, capacityConfigured: table.capacity_configured, mergedInto: table.merged_parent_id ?? undefined }),
               id: table.id,
               kind,
-              minimumOccupancy: getFloorPlanningMinimumOccupancy(
+              minimumOccupancy: operationalAuthority ? 1 : getFloorPlanningMinimumOccupancy(
                 table,
                 tables,
                 zoneId,
@@ -443,7 +445,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await loadPlan(auth.serviceClient, showReference);
+    const result = await loadPlan(auth.serviceClient, showReference, hasBookingOperationalAuthority(auth.staffProfile));
     if (!result) {
       return Response.json({ error: "Performance not found." }, { status: 404 });
     }
@@ -534,6 +536,8 @@ export async function POST(request: Request) {
       const message =
         assignmentError instanceof Error
           ? assignmentError.message
+          : typeof assignmentError === "object" && assignmentError && "message" in assignmentError
+          ? String(assignmentError.message)
           : String(assignmentError);
       if (/FLOOR_PLAN_STALE|TABLE_ALREADY_CLAIMED|TABLE_NOT_AVAILABLE/i.test(message)) {
         return Response.json(
@@ -648,7 +652,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await loadPlan(auth.serviceClient, showReference);
+    const result = await loadPlan(auth.serviceClient, showReference, hasBookingOperationalAuthority(auth.staffProfile));
     if (!result) {
       return Response.json({ error: "Performance not found." }, { status: 404 });
     }

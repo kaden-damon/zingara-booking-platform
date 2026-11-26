@@ -1,4 +1,5 @@
 import { getActorRoleLabel } from "@/lib/auditTrail";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import {
   loadActiveCorporateBuyoutSummaries,
   loadCorporateBuyoutPackages,
@@ -542,10 +543,10 @@ export async function PATCH(request: Request) {
                 p_ticket_entitlement_count: body.ticketEntitlementCount,
               },
             )
-          : body.action === "release" && body.reason?.trim()
+          : body.action === "release" && (body.reason?.trim() || hasBookingOperationalAuthority(auth.staffProfile))
             ? auth.serviceClient.rpc("release_corporate_buyout_atomic", {
                 ...common,
-                p_reason: body.reason.trim(),
+                p_reason: body.reason?.trim() || "Authorised Box Office Buyout release.",
               })
             : null;
     if (!operation) {

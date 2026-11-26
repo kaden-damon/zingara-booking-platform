@@ -17,6 +17,8 @@ type ZoneCapacity = {
 };
 
 type Props = {
+  editorId?: string;
+  allowGuestCountChange?: boolean;
   assignedClaims: Array<{ section: string; tableCode: string }>;
   bookingReference: string;
   disabled: boolean;
@@ -43,7 +45,17 @@ function allocationKey(entitlements: CorporateZoneEntitlementDraft[]) {
   );
 }
 
+export function focusCorporateZoneEditor(reference: string) {
+  const editor = document.getElementById(`booking-zones-${reference}`);
+  if (!editor) return false;
+  editor.scrollIntoView({ block: "center" });
+  editor.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+  return true;
+}
+
 export function CorporateZoneEntitlementEditor({
+  editorId,
+  allowGuestCountChange = false,
   assignedClaims,
   bookingReference,
   disabled,
@@ -67,7 +79,8 @@ export function CorporateZoneEntitlementEditor({
     (sum, entitlement) => sum + (Number(entitlement.pax) || 0),
     0,
   );
-  const validationError = validateCorporateZoneEntitlements(normalizedDraft, totalPax);
+  const targetPax = allowGuestCountChange ? allocatedPax : totalPax;
+  const validationError = validateCorporateZoneEntitlements(normalizedDraft, targetPax);
   const dirty = allocationKey(draft) !== allocationKey(initialDraft);
 
   function updateDraft(next: CorporateZoneEntitlementDraft[]) {
@@ -78,7 +91,7 @@ export function CorporateZoneEntitlementEditor({
 
   async function save() {
     if (disabled || !dirty || validationError || inFlightRef.current) return;
-    const parsed = parseCorporateZoneEntitlementEdit(draft, totalPax);
+    const parsed = parseCorporateZoneEntitlementEdit(draft, targetPax);
     if (!parsed) return;
 
     inFlightRef.current = true;
@@ -99,7 +112,7 @@ export function CorporateZoneEntitlementEditor({
   }
 
   return (
-    <div className="rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3">
+    <div id={editorId} className="rounded-xl border border-[#D8C36A]/25 bg-black/30 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8C36A]">
           Seating Zones
@@ -178,15 +191,16 @@ export function CorporateZoneEntitlementEditor({
       </div>
 
       <div className="mt-3 flex flex-wrap justify-between gap-2 border-t border-white/10 pt-3 text-xs font-semibold uppercase tracking-[0.08em]">
-        <span>Allocated {allocatedPax} / {totalPax}</span>
-        <span className={allocatedPax === totalPax ? "text-emerald-300" : "text-amber-300"}>
+        <span>{allowGuestCountChange ? `${allocatedPax} guests` : `Allocated ${allocatedPax} / ${totalPax}`}</span>
+        {!allowGuestCountChange && <span className={allocatedPax === totalPax ? "text-emerald-300" : "text-amber-300"}>
           Remaining {totalPax - allocatedPax}
-        </span>
+        </span>}
       </div>
 
+      {allowGuestCountChange && allocatedPax !== totalPax && <p className="mt-2 text-xs text-zinc-400">Agreed price stays unchanged.</p>}
       {validationError && (
         <p className="mt-2 text-xs leading-5 text-amber-200">
-          {allocatedPax !== totalPax
+          {!allowGuestCountChange && allocatedPax !== totalPax
             ? `This booking has ${totalPax} guests. Allocate all ${totalPax} guests across the selected seating zones before saving.`
             : validationError}
         </p>

@@ -47,6 +47,7 @@ export function canAccessBookingActivityTimeline(
 }
 
 export const bookingActivityLabels: Record<string, string> = {
+  "booking.commercial-exception": "Booking arrangement updated",
   "booking.create": "Booking created",
   "booking.edit": "Booking details changed",
   "booking.metadata-edit": "Booking notes or details changed",

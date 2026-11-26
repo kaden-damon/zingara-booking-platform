@@ -6,6 +6,7 @@ import ts from "typescript";
 import { canEditFloorCapacitySession, canEditSeatingBookingLimits, floorCapacityAccessMessage } from "./seatingBookingLimits";
 import { getPhysicalTableDefinition } from "./physicalTables";
 import { isValidSeatingZoneId } from "./zingaraDemo";
+import { hasBookingOperationalAuthority } from "./bookingOperationalAuthority";
 
 const editors = ["e8598359-54a0-4e1f-a635-1ec8ae02cb78", "3ac09b59-fc3f-4c6d-9bb3-8dd47a077188"];
 function handler(path: string, name: string, bindings: Record<string, unknown>) {
@@ -21,6 +22,7 @@ function handler(path: string, name: string, bindings: Record<string, unknown>) 
 test("real session serializer preserves auth identity and exposes the correct profile for both editors", () => {
   const serialize=handler("src/lib/supabase/serverAdmin.ts","staffProfileToSession",{
     getAdminRoleFromName:()=>"super-admin",getRolePermissions:()=>["tables:manage"],hasPlatformOwnerBinding:()=>false,
+    hasBookingOperationalAuthority,
   });
   for(const id of editors) {
     const session=serialize({id,full_name:"Staff",email:"staff@example.invalid",venue_scope:["all"],roles:{name:"Super Admin"}},{id:"different-auth-id"}) as {id:string;staffProfileId:string};

@@ -9,13 +9,13 @@ import {
   type CorporateBuyoutShowOption,
 } from "@/lib/supabase/corporateBuyouts";
 
-type Props = { onChanged?: () => Promise<unknown> | void };
+type Props = { onChanged?: () => Promise<unknown> | void; operationalAuthority?: boolean };
 
 function showLabel(show: CorporateBuyoutShowOption) {
   return `${show.venue} · ${show.date} · ${show.time.slice(0, 5)}`;
 }
 
-export default function CorporateBuyoutManager({ onChanged }: Props) {
+export default function CorporateBuyoutManager({ onChanged, operationalAuthority = false }: Props) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<CorporateBuyoutBootstrap | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,7 +43,7 @@ export default function CorporateBuyoutManager({ onChanged }: Props) {
 
   async function releaseBuyout() {
     const buyout = releaseTarget?.activeBuyout;
-    if (!buyout || !releaseReason.trim()) return;
+    if (!buyout || (!operationalAuthority && !releaseReason.trim())) return;
     setSaving(true);
     setError("");
     try {
@@ -152,13 +152,13 @@ export default function CorporateBuyoutManager({ onChanged }: Props) {
             <h2 id="release-buyout-title" className="text-xl font-bold text-white">Release this Buyout?</h2>
             <p className="mt-3 text-sm leading-6 text-zinc-300">{releaseTarget.activeBuyout.bookingReference} · {releaseTarget.activeBuyout.companyName}</p>
             <p className="mt-2 text-sm leading-6 text-amber-100">The booking will be cancelled and public booking will follow the performance&apos;s normal status, dates and capacity. Payments must be reviewed first.</p>
-            <label className="mt-4 block text-sm font-semibold text-zinc-300">
+            {!operationalAuthority && <label className="mt-4 block text-sm font-semibold text-zinc-300">
               Reason
               <textarea value={releaseReason} onChange={(event) => setReleaseReason(event.target.value)} rows={3} className="mt-1 w-full rounded-xl border border-white/15 bg-black/55 p-3 text-sm text-white outline-none focus:border-[#D8C36A]/70" />
-            </label>
+            </label>}
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button type="button" disabled={saving} onClick={() => { setReleaseTarget(null); setReleaseReason(""); }} className="min-h-11 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-zinc-200">Cancel</button>
-              <button type="button" disabled={saving || !releaseReason.trim()} onClick={() => void releaseBuyout()} className="min-h-11 rounded-full bg-red-200 px-6 py-3 text-sm font-bold text-red-950 disabled:opacity-50">{saving ? "Releasing..." : "Release Buyout"}</button>
+              <button type="button" disabled={saving || (!operationalAuthority && !releaseReason.trim())} onClick={() => void releaseBuyout()} className="min-h-11 rounded-full bg-red-200 px-6 py-3 text-sm font-bold text-red-950 disabled:opacity-50">{saving ? "Releasing..." : "Release Buyout"}</button>
             </div>
           </section>
         </div>

@@ -71,6 +71,15 @@ export function resolveAddedGuestPricingBasis(input: {
   const provenance = input.metadata?.pricingProvenance;
   const provenanceRate = positiveMoney(provenance?.agreedPricePerPerson);
   const provenanceDeposit = positiveMoney(provenance?.depositPerPerson);
+  const agreement = input.metadata?.operationalFinancialAgreement;
+  if (agreement && Number.isInteger(input.metadata?.partySize) && Number(input.metadata?.partySize) > 0) {
+    const tickets = Number(input.metadata?.valueAllocation?.ticketAmount ?? Number(agreement.ticketAmount) - Number(agreement.discountAmount));
+    const gratuity = Number(input.metadata?.valueAllocation?.ticketGratuityAmount ?? agreement.gratuityAmount);
+    if (Number.isFinite(tickets) && tickets > 0 && Number.isFinite(gratuity) && gratuity >= 0) {
+      return { paymentBasis: "full", source: "staff-agreed", unitAmount: Math.round(tickets / Number(input.metadata?.partySize) * 100) / 100,
+        ...(gratuity > 0 ? { gratuityRate: gratuity / tickets } : {}) };
+    }
+  }
 
   const isAuthoritativeComplimentary =
     input.paymentStatus === "comp_vip" &&

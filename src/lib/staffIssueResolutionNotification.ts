@@ -18,7 +18,7 @@ type Action = { label: string; url: string } | null;
 const origin = "https://book.zingara.co.za";
 const templateName = "Staff Issue Resolution";
 export const staffIssueResolutionTemplate = {
-  subject: "{{bug_reference}} resolved | Zingara",
+  subject: "{{bug_reference}} resolved",
   body: "Hello {{reporter_name}},\n\n{{resolution_notes}}",
 };
 

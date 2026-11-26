@@ -11,6 +11,7 @@ import {
   getSelectedTableCapacity,
 } from "@/lib/fullShowBuyoutSeating";
 import { updateCorporateBuyoutAllocation } from "@/lib/supabase/corporateBuyouts";
+import { updateCorporateBookingZoneEntitlements } from "@/lib/supabase/bookings";
 import { assignFullShowBuyoutZoneTables } from "@/lib/supabase/floorPlans";
 import {
   seatingZones,
@@ -29,6 +30,7 @@ const buyoutZoneIds = [
 ] as const satisfies readonly SeatingZoneId[];
 
 type Props = {
+  operationalAuthority?: boolean;
   booking: DemoBooking;
   buyout: CorporateBuyoutSummary;
   canManage: boolean;
@@ -42,6 +44,7 @@ function zoneTitle(zoneId: SeatingZoneId) {
 }
 
 export function FullShowBuyoutSeatingPlanner({
+  operationalAuthority = false,
   booking,
   buyout,
   canManage,
@@ -78,7 +81,10 @@ export function FullShowBuyoutSeatingPlanner({
 
   async function saveAllocation(next: CorporateZoneEntitlement[]) {
     setMessage("");
-    await updateCorporateBuyoutAllocation({
+    if (operationalAuthority) await updateCorporateBookingZoneEntitlements({
+      bookingReference: booking.reference, expectedUpdatedAt: booking.updatedAt ?? "", zoneEntitlements: next,
+    });
+    else await updateCorporateBuyoutAllocation({
       buyoutId: buyout.id,
       expectedRevision: buyout.revision,
       zoneAllocations: next,
@@ -123,6 +129,7 @@ export function FullShowBuyoutSeatingPlanner({
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.5fr)]">
           <div>
             <CorporateZoneEntitlementEditor
+              allowGuestCountChange={operationalAuthority}
               assignedClaims={assignedClaims.map((claim) => ({
                 section: claim.section,
                 tableCode: claim.tableCode,
