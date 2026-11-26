@@ -1,6 +1,6 @@
 # Box Office Historical Financial Recovery
 
-STATUS: VERIFIED LOCALLY / RELEASE IN PROGRESS
+STATUS: RELEASED / READY; LISA'S REAL BOOKING UNCHANGED
 
 DATE: 26 NOVEMBER 2026
 
@@ -27,7 +27,22 @@ DATE: 26 NOVEMBER 2026
   reused. Actual Lisa source copied without prior financial normalisation.
 - Live pre-release definitions match captured originals; protected booking,receipts,
   ticket,seating,source and audit fingerprints saved. No customer data changed.
-  Apply1900,scoped commit/push,cloud budget/READY/alias and live readback pending.
+  Function-only1900 installed with exact definition drift checks; readback verifies
+  recovered38500 tickets/4812.50 gratuity/0 other,no blocker and authorised Lisa.
+- Application6960b030d341dc5ee8a3906bbf2eef93dfa36e39 pushed Main with pendinge2471ab
+  documentation. Productiondpl_4bGJ2uVTf5jomvXHevND7bRpkqeR READY and actual live
+  book.zingara.co.za alias verified at that deployment/commit. Cloud Turbopack build
+  passes unchanged budgets:raw1313688/1320000,gzip319442/320000,largest169907/170000.
+- Live read-only PostgREST recovery200,guest count25,total/paid43312.50,balance0;
+  /book and /admin200,unauthenticated reconciliation401. Protected booking,
+  receipts,tickets,tables,source and audit fingerprints unchanged after migration.
+  No real staff save/financial mutation was used as QA: authenticated saves/reopens
+  used isolated fixtures. No matching recent Lisa issue record references this
+  booking; no issue fabricated/closed and no reporter email invented or sent.
+- Final evidence-only records committed locally for next authorised release per
+  README,avoiding a second documentation-only Production build. Frontend2 and
+  private rollback evidence untouched. Lisa can reopen Edit Guest Count and save;
+  no historical invoice reconstruction is required.
 
 # Urgent Box Office Operational Authority
 

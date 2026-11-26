@@ -290,3 +290,39 @@ TypeScript,changed-file lint/diff pass. Final release/budget evidence and read-o
 live source verification remain pending below. Private original definitions and
 source snapshot: local-evidence/lisa-original-functions.json,lisa-reduction-before.json.
 No Frontend2 changes, new structures, configuration writes or customer emails.
+
+### Lisa Regression Release Evidence
+
+- Application commit6960b030d341dc5ee8a3906bbf2eef93dfa36e39 pushed Main,including
+  pendinge2471ab records. Verceldpl_4bGJ2uVTf5jomvXHevND7bRpkqeR READY;
+  zingara-booking-platform-6nwy0987p-kaden-damons-projects.vercel.app.
+  Actual book.zingara.co.za inspection resolves this deployment, and full-SHA
+  Production list verifies the exact application commit,not merely a pushed asset.
+- Standard cloud npm run build completed with Turbopack and unchanged performance
+  gate: raw1,313,688/1,320,000,gzip319,442/320,000,largest169,907/170,000 bytes.
+  Increment versus prior release:22raw/7gzip bytes; largest chunk unchanged.
+  Existing ticketPdfServer dynamic-font tracing warning remains unrelated; no
+  budget raised,no compiler/budget bypass or dependency introduced.
+- Function-only1900 installed atomically after exact originals/drift checks.
+  No historical data rewrites,new schema objects beyond existing-function overload,
+  configuration changes or migration-ledger repair. New overload is service-only;
+  anon/authenticated execute=false. Private originals retain rollback definitions.
+- Installed live database and actual PostgREST RPC both recover Lisa's ticket38500,
+  gratuity4812.50,other0,blockedReason null,operationalAuthority true. Her actual
+  booking remains25,total/paid43312.50,outstanding0. Protected booking,receipts,
+  ticket/table,original request and audit fingerprints match the pre-release
+  snapshot. /book and /admin200; unauthenticated reconciliation401.
+- Actual authenticated Lisa-identity fixture8 attendance and2 payment-editor
+  save/reopens passed; no live consequential save under a real staff session was
+  performed or claimed. New guards/server tests,TypeScript,lint/diff all pass.
+  Exact fixture source preserved original0service_fee conversion,not an edited
+  approximation. Native/imported paths and missing-evidence retention verified.
+- A bounded read-only search found no recent Lisa issue record referencing this
+  booking. No issue completion/notification was fabricated; no customer or staff
+  email sent. Short staff note: "You can now reduce guests without re-entering the
+  original invoice. Reopen the booking and try again."
+- AGENTS and existing task records updated. Final evidence-only close-out committed
+  locally for next authorised release under README; no redundant deployment.
+  No changes to Frontend2 or unrelated work/checkpoints. Private evidence retained
+  in financial-recovery-*-results.json,financial-recovery-production-readback.json,
+  financial-recovery-live-release.json and mobile screenshots,not Git.
