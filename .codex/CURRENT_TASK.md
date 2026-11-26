@@ -1,6 +1,6 @@
 # BUG-000039: Ordinary Outstanding-Balance Guest Reductions
 
-STATUS: VERIFIED LOCALLY; PRODUCTION RELEASE IN PROGRESS
+STATUS: RELEASED / READY; INSTALLED CORRECTION VERIFIED
 
 DATE: 26 NOVEMBER 2026
 
@@ -19,13 +19,27 @@ DATE: 26 NOVEMBER 2026
 - Before-cutoff fixture:14 guests/R19688.40 total/R8250 paid/R11438.40 balance,
   no Accounts/refund/bar allocation. Actual booking not amended.
 -90 focused tests pass including BUG37/38 and reports; TypeScript/lint pass.
- 17 temporary SQL scenarios execute actual native/Corporate delegates. Permissions,
+ 19 temporary SQL scenarios execute actual native/Corporate delegates. Permissions,
   revision, lock, preview, refund/balance guards, replay and stale links verified.
   Table-fit/capacity helpers isolated; no real booking/payment/ticket/seating QA.
 - Migration20261126110000 fail-closed patches only existing basis/transaction;
   preserve November12 ledger discrepancy, no db push. Originals/screenshot/SQL
   private in local-evidence/bug39-*. Include pending docs2e46ffc/b7424f1.
-- Await READY/installed verification before completion. Full continuation:
+- Release bfce278173bac1544d33077c8d9df34bfda3d6f1 pushed Main; deployment
+  dpl_Bni5qzeJ2UkLEA4nF5aunLEpPWcU READY and actual book.zingara.co.za alias
+  verified. Migration applied/recorded alone; installed19 temporary scenarios pass,
+  including partially-paid Corporate staff-confirmed breakdowns. Actual affected
+  basis now unblocked. Reported/BUG37/BUG38 booking/payment/ticket hashes unchanged;
+  atomic delegates and full-payment ticket guards unchanged.
+- Clean Production build budget passes raw1309519/1320000, gzip318234/320000,
+  largest169055/170000. Live /admin and /book200; unauthenticated amendment401.
+  No real authenticated amendment performed: installed fixture/guard evidence,
+  not a claim that Rasmus has already completed his save. Reopen/review/retry.
+- BUG39 completed with three short everyday-English sentences and maintenance
+  audit; original issue/screenshot retained, no customer communications. Private
+  release evidence local-evidence/bug39-production-release.json. Final records
+  committed locally for next authorised release, avoiding redundant doc deployment.
+- Full continuation:
   archive/CANCELLATION_POLICY_WORKFLOW_UPDATE_2026-11-23.md, BUG39 section.
 
 ---

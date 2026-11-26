@@ -296,7 +296,7 @@ No code/database changes, new release, repeated audit or Frontend 2.0 access.
 
 ## BUG-000039 — Ordinary Outstanding Balances — 26 November 2026
 
-Status: correction verified; authorised Production release in progress.
+Status: released / READY; installed functional correction verified.
 
 Original issue9007e76c-6d93-45ad-ac67-cc02406345e3 (Rasmus) explicitly reports
 the Accounts block for deposits and other balances. Privately inspected attached
@@ -340,7 +340,7 @@ full-payment guard, ticket identities and seating/amendment delegates untouched.
 
 Verification:90 targeted tests passed (42 policy/partial/server/BUG38 plus48
 component/financial/reporting/added-guest checks), TypeScript and changed-file
-ESLint passed.17 temporary SQL scenarios cover Standard/Corporate x unpaid/
+ESLint passed.19 temporary SQL scenarios cover Standard/Corporate x unpaid/
 deposit/partial/full x before/after cutoff, plus reported booking values. Actual
 installed native/Corporate delegates executed against session-temporary tables;
 permission/version/lock/tampered preview/refund/inconsistent balance guards,
@@ -354,3 +354,36 @@ repair. Originals and private rollback/test evidence: local-evidence/bug39-*.
 Known November12 migration-ledger discrepancy remains isolated; never db push.
 Remote Main/live before release65a5d15 /dpl_9kJxC18dVWEejT7tCZ1R1NzmjvEn READY.
 Pending documentation2e46ffc and b7424f1 explicitly included in this release.
+
+### Verified Release And Close-Out
+
+- Commit bfce278173bac1544d33077c8d9df34bfda3d6f1 pushed Main, including both
+  pending documentation commits. Vercel dpl_Bni5qzeJ2UkLEA4nF5aunLEpPWcU READY;
+  exact-SHA deployment and actual book.zingara.co.za alias resolve to same ID.
+- Migration20261126110000 applied/recorded individually after the matching
+  application became READY; no unrelated migration or ledger repair. Installed
+  function definitions retested through19 temporary scenarios, including partial
+  Corporate invoice confirmation before/after cutoff. No real customer mutation.
+- Before/after row hashes identical for ZNG-AMP82L, ZNG-XSUC8A and ZNG-86Q76S:
+  bookings, payments and tickets unchanged. Existing amendment delegates, ticket
+  hook and full-payment issuance guard hashes unchanged. No permission changes.
+  Actual ZNG-AMP82L basis now returns blockedReason:null, same original amounts.
+- Clean Vercel build passes unchanged budgets: raw1309519/1320000,
+  gzip318234/320000, largest gzip169055/170000. Added shared preview arithmetic
+  changes gzip by69 bytes; no new dependencies, normal requests or data loads.
+- Live /admin and /book HTTP200; unauthenticated reconciliation POST401.
+  Actual installed SQL fixtures establish functional behaviour, not assets alone.
+  No authenticated live customer amendment or physical device test performed.
+- BUG39 completed with explicit System maintenance audit (not impersonated staff),
+  no email sent. Resolution: "Guest reductions were blocked when a booking still
+  had a balance to pay. This is fixed, while cancellation and payment rules still
+  apply. Reopen the booking and try again."
+- Rasmus may reopen/review and retry the ordinary reduction. Actual refunds,
+  inconsistent saved financial amounts, missing invoice evidence, Buyout contracts
+  and previous allocations retain their genuine existing review/permission guards.
+  No retrospective financial correction, real booking change or Frontend2.0 access.
+- Private release/snapshot/installed-test evidence: local-evidence/bug39-*.
+  Rollback requires coordinated application/two-function restoration from the
+  preserved originals, never rewriting customer rows. Final verification records
+  committed locally and retained for next authorised release under README's
+  no-redundant-documentation-deployment rule.
