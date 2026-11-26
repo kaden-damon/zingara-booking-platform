@@ -351,7 +351,7 @@ export async function POST(request: Request) {
     const reductionPreview = isReductionReplay ? body.expectedReductionPreview as ReturnType<typeof previewGuestReduction> : policyReduction && reductionBasis
       ? previewGuestReduction(reductionBasis, Number(body.guestCount), body.reductionDisposition) : null;
     if (policyReduction && (!reductionPreview || !body.reductionOperationId?.trim() ||
-      !["review-refund", "bar-credit"].includes(body.reductionDisposition ?? ""))) {
+      !["review-refund", "bar-credit", "outstanding-balance"].includes(body.reductionDisposition ?? ""))) {
       return Response.json({ code: "GUEST_REDUCTION_MANUAL_REVIEW", error:
         reductionBasis?.blockedReason || "Review the cancellation allocation before confirming this reduction." }, { status: 409 });
     }

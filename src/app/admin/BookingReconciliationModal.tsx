@@ -390,7 +390,7 @@ export function GuestCountReconciliationModal(
         </div>
         <label className="rounded-xl border border-[#D8C36A]/25 bg-[#D8C36A]/5 p-4">
           <span className="text-xs font-semibold uppercase text-[#F2D66C]">New guest count</span>
-          <input type="number" min="1" step="1" value={draft.guestCount} onChange={(event) => setDraft((current) => ({ ...current, guestCount: Number(event.target.value) }))} className="mt-2 w-full bg-transparent text-2xl font-semibold text-white outline-none" />
+          <input type="number" min="1" step="1" value={draft.guestCount} onChange={(event) => { setDraft((current) => ({ ...current, guestCount: Number(event.target.value) })); setReductionDisposition("review-refund"); }} className="mt-2 w-full bg-transparent text-2xl font-semibold text-white outline-none" />
         </label>
       </div>
       <p className="mt-4 text-sm text-zinc-300">Current table: {booking.tableCode ?? "Needs a table"} · {booking.zone}</p>
@@ -506,11 +506,13 @@ export function GuestCountReconciliationModal(
             <p>Total Amount Paid<br /><strong>{formatMoney(booking.amountPaid)}</strong></p>
             <p>Revised retained total<br /><strong>{formatMoney(reductionPreview.totalRetainedValue)}</strong></p>
             <p>Outstanding<br /><strong>{formatMoney(reductionPreview.newOutstanding)}</strong></p>
+            {reductionPreview.outstandingBalanceAllocationAmount > 0 && <p>Allocated towards balance<br /><strong>{formatMoney(reductionPreview.outstandingBalanceAllocationAmount)}</strong></p>}
           </div>
           {reductionPreview.eligibleTicketAmount > 0 && <label className="mt-4 block text-xs text-zinc-300">Eligible ticket value only
             <select value={reductionDisposition} onChange={(event) => setReductionDisposition(event.target.value as GuestReductionDisposition)} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-black px-3">
               <option value="review-refund">Refund through existing authorised process</option>
               <option value="bar-credit">Transfer eligible ticket value to bar</option>
+              {reductionPreview.fullRefundWindow && (reductionPreview.newOutstanding > 0 || reductionPreview.outstandingBalanceAllocationAmount > 0) && <option value="outstanding-balance">Allocate towards outstanding balance</option>}
             </select>
           </label>}
           <p className="mt-3 text-xs text-zinc-400">Original receipts remain unchanged. Released unpaid ticket balances are removed; paid value is retained as shown pending any authorised refund. No automatic refund or additional gratuity charge. Cancelled gratuity is never transferred to bar.</p>

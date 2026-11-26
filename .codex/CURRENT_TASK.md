@@ -1,3 +1,47 @@
+# Guest Reduction: Allocate Towards Outstanding Balance
+
+STATUS: FUNCTIONAL VERIFICATION PASSED; AUTHORISED PRODUCTION RELEASE IN PROGRESS
+
+DATE: 26 NOVEMBER 2026
+
+- BUG39 prerequisite confirmed: live bfce278 /dpl_Bni5qzeJ2UkLEA4nF5aunLEpPWcU
+  READY; issue completed, ZNG-AMP82L reduction basis unblocked with original values.
+- Approved extension (Fatima25Nov; current user request): existing Edit Guest Count
+  cancellation dropdown gains Allocate towards outstanding balance. Reuse modal,
+  shared policy preview, reconciliation route and atomic cancellation transaction.
+  No new controls/workflow beyond explicitly requested option; no permissions,
+  business booking records, payment receipts or Frontend2.0 changes.
+- Only before/at existing5/7-day cutoff, with eligible paid ticket funds and an
+  outstanding balance. Cap at balance; leave excess in existing refund review.
+  Reduce reserved refund liability/retained total, not actual receipts; increase
+  paid allocation to remaining tickets. Existing status/metadata and link revocation
+  handle the revised obligation. Preserve gratuity, forfeiture, Buyouts and guards.
+- Reference ZNG-6F3BT2 already reduced12->9 on25Nov: R6600 paid, R12952.50 remaining
+  tickets, R1650 refund reserve, R10 other charge, R8012.50 current overall balance.
+  New-option fixture produces ticket balanceR6352.50, overallR6362.50. User expressly
+  approved preserving R10 and releasing with distinction documented. Actual booking
+  unchanged; prior-allocation review safeguard remains, no retrospective conversion.
+-124 focused tests pass (including BUG37/38/39, cutoffs, excess/refunds,
+  imported/reporting/ticket/payment-link safeguards); TypeScript and targeted lint
+  pass. Authenticated390px actual modal -> real GET/POST handlers -> temporary SQL
+  -> close/reopen -> actual payment-link creation/lookup passed; desktop1280 no
+  overflow,9 valid original-identity tickets, table retained, paid receipt unchanged,
+  old links revoked and new linkR6362.50.401 unauthenticated /403 restricted staff.
+- Fixture boundary: local signed test authority/Supabase adapter, actual serverAdmin
+  permission/undertaking checks and application handlers; actual installed SQL,
+  seating compatibility and ticket/payment guards cloned into session-temporary
+  tables with rollback. No real staff session/customer amendment/payment/email or
+  provider checkout during QA. All11 authenticated journeys passed, plus8 direct
+  SQL guard/cutoff/Assignment Queue cases. Final excess/fee check caps ticket-paid
+  value at remaining ticket obligation, leavingR1190 refundable in the surplus
+  fixture. Original receipts unchanged; no negative ticket balances.
+- Migration20261126120000 patches only existing policy function, hash guarded;
+  preserve known November12 ledger discrepancy. Private originals/fixtures/results
+  local-evidence/balance-*. Include pending documentation142cefc in release.
+- Continue in archive/CANCELLATION_POLICY_WORKFLOW_UPDATE_2026-11-23.md.
+
+---
+
 # BUG-000039: Ordinary Outstanding-Balance Guest Reductions
 
 STATUS: RELEASED / READY; INSTALLED CORRECTION VERIFIED

@@ -46,7 +46,7 @@ export function confirmGuestReductionComponents(basis: GuestReductionBasis, inpu
   return { ...basis, ...confirmedComponents, blockedReason: null, confirmedComponents };
 }
 
-export type GuestReductionDisposition = "review-refund" | "bar-credit";
+export type GuestReductionDisposition = "review-refund" | "bar-credit" | "outstanding-balance";
 const cents = (n: number) => Math.round(n * 100);
 
 export function previewGuestReduction(
@@ -79,6 +79,9 @@ export function previewGuestReduction(
   const gratuityRefundEligible = basis.bookingKind === "corporate" && policy.fullRefundWindow ? paidGratuity : 0;
   const unresolvedGratuity = paidGratuity - gratuityForfeited - gratuityRefundEligible;
   const barCredit = disposition === "bar-credit" ? eligible : 0;
+  const retainedOutstanding = Math.max(0, outstanding - releasedUnpaid - unpaidGratuity);
+  if (disposition === "outstanding-balance" && (!policy.fullRefundWindow || retainedOutstanding <= 0 || eligible <= 0)) return null;
+  const balanceAllocation = disposition === "outstanding-balance" ? Math.min(eligible, retainedOutstanding) : 0;
   return {
     ...(basis.confirmedComponents ? { confirmedComponents: basis.confirmedComponents } : {}),
     version: 1,
@@ -87,7 +90,7 @@ export function previewGuestReduction(
     fullRefundWindow: policy.fullRefundWindow,
     disposition,
     ticketAmount: (cents(basis.ticketAmount) - released) / 100,
-    ticketPaidAmount: basis.depositOnly ? 550 * newGuestCount : Math.max(0, cents(basis.ticketAmount) - released - Math.max(0, outstanding - releasedUnpaid - unpaidGratuity)) / 100,
+    ticketPaidAmount: (basis.depositOnly ? Math.min(cents(basis.ticketAmount) - released, 55000 * newGuestCount + balanceAllocation) : Math.max(0, cents(basis.ticketAmount) - released - retainedOutstanding + balanceAllocation)) / 100,
     releasedTicketValue: released / 100,
     releasedUnpaidAmount: releasedUnpaid / 100,
     ticketGratuityAmount: remainingGratuity / 100,
@@ -98,13 +101,14 @@ export function previewGuestReduction(
     gratuityTransferred: 0,
     forfeitedAmount: forfeited / 100,
     eligibleTicketAmount: eligible / 100,
-    refundReviewAmount: (eligible - barCredit + gratuityRefundEligible) / 100,
+    refundReviewAmount: (eligible - barCredit - balanceAllocation + gratuityRefundEligible) / 100,
+    outstandingBalanceAllocationAmount: balanceAllocation / 100,
     barCreditAmount: barCredit / 100,
     barTabAmount: (cents(basis.barTabAmount) + barCredit) / 100,
     otherAmount: basis.otherAmount,
-    totalRetainedValue: (cents(basis.totalAmount) - releasedUnpaid - unpaidGratuity) / 100,
-    newOutstanding: Math.max(0, (outstanding - releasedUnpaid - unpaidGratuity) / 100),
-    manualResolutionRequired: eligible > barCredit || unresolvedGratuity > 0 || gratuityRefundEligible > 0,
+    totalRetainedValue: (cents(basis.totalAmount) - releasedUnpaid - unpaidGratuity - balanceAllocation) / 100,
+    newOutstanding: (retainedOutstanding - balanceAllocation) / 100,
+    manualResolutionRequired: eligible > barCredit + balanceAllocation || unresolvedGratuity > 0 || gratuityRefundEligible > 0,
   };
 }
 
@@ -115,7 +119,8 @@ export function readReductionAllocation(notes?: string | null) {
     const metadata = JSON.parse(notes.slice(prefix.length));
     const a = metadata.valueAllocation;
     const fields = ["ticketAmount", "ticketGratuityAmount", "barTabAmount", "forfeitedAmount", "gratuityForfeitedAmount", "refundReviewAmount", "gratuityReviewAmount"];
-    return a?.version === 1 && a?.policyApplied === true && fields.every(
+    return a?.version === 1 && a?.policyApplied === true &&
+      (a.outstandingBalanceAllocationAmount === undefined || typeof a.outstandingBalanceAllocationAmount === "number" && Number.isFinite(a.outstandingBalanceAllocationAmount) && a.outstandingBalanceAllocationAmount >= 0) && fields.every(
       (key) => typeof a[key] === "number" && Number.isFinite(a[key]) && a[key] >= 0,
     ) ? a as ReturnType<typeof previewGuestReduction> : null;
   } catch { return null; }
@@ -124,5 +129,5 @@ export function readReductionAllocation(notes?: string | null) {
 export function reductionAllocationSummary(notes?: string | null) {
   const a = readReductionAllocation(notes);
   if (!a) return "";
-  return `Guest reduction: tickets R${a.ticketAmount.toFixed(2)}; remaining gratuity R${a.ticketGratuityAmount.toFixed(2)}; forfeited tickets R${a.forfeitedAmount.toFixed(2)}; forfeited gratuity R${a.gratuityForfeitedAmount.toFixed(2)}; bar R${a.barTabAmount.toFixed(2)}; refund review R${a.refundReviewAmount.toFixed(2)}; gratuity review R${a.gratuityReviewAmount.toFixed(2)}; unpaid ticket balance released R${(a.releasedUnpaidAmount ?? 0).toFixed(2)}. No automatic refund or additional gratuity charge.`;
+  return `Guest reduction: tickets R${a.ticketAmount.toFixed(2)}; remaining gratuity R${a.ticketGratuityAmount.toFixed(2)}; forfeited tickets R${a.forfeitedAmount.toFixed(2)}; forfeited gratuity R${a.gratuityForfeitedAmount.toFixed(2)}; bar R${a.barTabAmount.toFixed(2)}; refund review R${a.refundReviewAmount.toFixed(2)}; gratuity review R${a.gratuityReviewAmount.toFixed(2)}; unpaid ticket balance released R${(a.releasedUnpaidAmount ?? 0).toFixed(2)}${a.outstandingBalanceAllocationAmount ? `; allocated towards balance R${a.outstandingBalanceAllocationAmount.toFixed(2)}` : ""}. No automatic refund or additional gratuity charge.`;
 }

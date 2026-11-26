@@ -19284,7 +19284,7 @@ export default function AdminDashboardPage({
 
   async function saveGuestCountReconciliation(draft: {
     guestCount: number;
-    reductionDisposition?: "review-refund" | "bar-credit";
+    reductionDisposition?: import("@/lib/guestReductionPolicy").GuestReductionDisposition;
     reductionOperationId?: string;
     expectedReductionPreview?: unknown;
     manualPaymentBasis?: LegacyGuestIncreasePaymentBasis;

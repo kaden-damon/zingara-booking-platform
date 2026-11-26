@@ -387,3 +387,103 @@ Pending documentation2e46ffc and b7424f1 explicitly included in this release.
   preserved originals, never rewriting customer rows. Final verification records
   committed locally and retained for next authorised release under README's
   no-redundant-documentation-deployment rule.
+
+## Allocate Towards Outstanding Balance — 26 November 2026
+
+Status: complete authenticated fixture checks passed; authorised release in progress.
+Authority: current user request, Fatima approval25November. No new phase.
+
+BUG39 prerequisite freshly verified: live bfce278 READY at
+dpl_Bni5qzeJ2UkLEA4nF5aunLEpPWcU; original issue completed; ZNG-AMP82L basis
+unblocked, same15 guests/R21094/R8250/R12844. Reused existing release evidence.
+
+Existing paths: BookingReconciliationModal GuestCountReconciliationModal;
+AdminDashboard saveGuestCountReconciliation; reconciliation API GET/POST;
+guestReductionPolicy preview; reconcile_booking_guest_reduction_policy_atomic;
+unchanged native/Corporate delegates, ticket triggers and payment-link creation.
+Specific gap: refund/bar destinations exist but cannot apply a reserved eligible
+paid deposit to remaining outstanding tickets. Extend their dropdown/enum only.
+
+Eligibility: existing Standard5/Corporate7-day full-refund boundary (inclusive
+exact cutoff), eligible paid ticket value >0 and remaining outstanding >0.
+Reject otherwise in shared preview/API and authoritative SQL, including stale
+cutoff/altered previews. Cap allocation at balance; excess remains refund review.
+Never allocate forfeiture or invent receipts. Reduce retained refund reserve and
+matching obligation, increase ticket paid allocation, preserve immutable payments.
+Existing metadata/payment status/revocation and fee-aware outstanding-link function
+reconcile current amounts; no extra normal data requests, dependencies or schema.
+Existing pre-refund netting/verified deposits from BUG39 retained, not duplicated.
+Buyout contractual flow and Corporate gratuity confirmation/forfeiture unchanged.
+
+Reference, read-only: ZNG-6F3BT2 already12->9 on25Nov13:12 SAST, original total
+R17280/paidR6600; current retained totalR14612.50/outstandingR8012.50. Saved allocation
+remaining ticketsR12952.50, ticket paidR4950, refundable reserveR1650, otherR10.
+Applying reservedR1650 to remaining tickets in a representative fixture gives
+ticket paidR6600/ticket balanceR6352.50, overall totalR12962.50/balanceR6362.50.
+The R10 difference is an existing saved charge, not a new transaction. User
+explicitly confirmed "Preserve R10 and release" after disclosure. Never remove
+the charge to force the ticket-only amount into the overall balance. Actual
+booking, prior amendment, payment and refund evidence remain unchanged; no
+retrospective conversion or bypass of the existing previous-allocation guard.
+
+Checks:124 targeted tests passed, including BUG37/38/39, financial reports,
+ticket identity, payment links and new cap/cutoff rules. TypeScript/targeted lint
+passed. Defensive optional stored-allocation validation and final ticket-paid cap
+checks pass. No full-suite/baseline lint cleanliness claim.
+
+Complete authenticated fixture browser flow passed: sign in to isolated authority,
+open via actual reconciliation GET, edit12->9 in actual modal, choose new option,
+save through actual POST and SQL, close/reopen, verify persisted financial state,
+create current link via actual payment-link POST and view via GET. R6362.50 link,
+nine valid canonical tickets/unchanged QRs, same table, one unchangedR6600 receipt,
+revoked old links, no extra payments. Unauthenticated401; restricted staff GET/POST
+and link creation403.390/1280px no horizontal overflow. Screenshots and results
+private: local-evidence/balance-allocation-*. No physical iPhone verification.
+
+Fixture integrity boundary: actual serverAdmin auth/role/undertaking/permission
+logic and application handlers, with a local HMAC-signed fixture authority and
+fixture Supabase adapter (not a real Production identity). Actual installed SQL
+and real seating compatibility, ticket population/reduction/NYE payment guards,
+and payment-link functions execute only against pg_temp table copies followed by
+ROLLBACK. Test-only state snapshots persist locally for subsequent reopen requests.
+No real customer booking, financial transaction, seating mutation, Wallet push,
+email or PayFast call. Outbound browser requests limited to localhost. Approved
+Royal Balcony zone limit used in fixture capacity helper; aggregate Production
+capacity triggers are unchanged and prior verified evidence reused, not re-audited.
+
+Migration20261126120000 fail-closed patches one existing function only. No new
+table/column/grant or ledger repair. Original definition and rollback-only SQL
+fixtures retained privately in local-evidence/balance-*. Pending142cefc included
+in the forthcoming authorised release; do not release until functional matrix
+and essential checks finish successfully.
+
+### Completed Functional And Regression Matrix
+
+| Scenario | Result / evidence |
+| --- | --- |
+| Authenticated open/edit/select/save/close/reopen | PASSED: actual modal, server auth/permission logic, GET/POST and cloned atomic SQL; isolated authority/database boundary above |
+| Unpaid bookings | PASSED: authenticated reduction/reopen, unchanged receipts, no fictitious paid allocation |
+| Verified deposit-paid bookings | PASSED: new option allocatesR1650, retainsR6600 receipts,9 tickets, same table |
+| Partially paid bookings | PASSED: native BUG39 and Corporate authenticated reductions/reopens |
+| Fully paid bookings | PASSED: existing bar transfer; new balance option rejected without outstanding |
+| Standard/Corporate reductions and increases | PASSED: authenticated native and Corporate increases, early/late/imported reductions and reopen; Corporate fixed totalR19440 preserved,13 valid tickets |
+| Before/inside/exact5/7-day cutoff | PASSED: unit boundaries plus actual SQL frozen-clock exact boundaries; late direct balance allocation rejected atomically |
+| Refund/bar/balance destinations | PASSED: existing refund reserves/bar transfer preserved; actual authenticated new-option journey |
+| Excess funds | PASSED: allocation capsR460, R1190 stays refundable; paid tickets capR5400 plusR10 fee/R1190 reserve reconcilesR6600 receipt |
+| Gratuity/forfeitures | PASSED: authenticated late Corporate; remaining gratuity retained, cancelled prepaid gratuity/tickets forfeited; no new balance allocation of forfeiture |
+| NYE/full-payment safeguards | PASSED: authenticated3->5 saves additionalR3880 debt, original3 tickets retained; isolated settlement yields exactly5 original-identity-safe tickets, repeated settlement no duplicates |
+| Historical imported bookings | PASSED: authenticated imported Corporate reduction/bar transfer using original manual-invoice evidence |
+| Seating/ticket quantities | PASSED: actual fit/reduction/population functions; same table where compatible; physical booth below actual6 minimum moves unassigned/Assignment Queue with5 valid tickets, no splitting |
+| Revised links/outstanding | PASSED: old links revoked; actual fee-aware create/lookup routes and SQL persist/viewR6362.50; no send/provider initiation |
+| Authorised/unauthorised | PASSED: authenticated fixture role;401 no session,403 restricted GET/POST/link; direct SQL unauthorised identity rejected |
+| Tampered amount/atomic failure | PASSED: altered allocation rejected; temporary booking/payment/ticket state unchanged on rejection |
+| BUG37/38/39 | PASSED: focused component confirmation, NYE ticket timing and partial-payment suites; actual authenticated BUG39/NYE/imported Corporate journeys; prior BUG37 temporary confirmation evidence reused |
+| Mobile/desktop | PASSED: Chromium390/1280 screenshots and no overflow; actual modal scroll; physical iPhone UNVERIFIED |
+| Real Production staff save/customer payment | UNVERIFIED / intentionally not executed: destructive/financial tests isolated; no real booking, receipt, ticket or communication changes |
+
+Eleven complete authenticated fixture journeys and eight additional SQL guard/cutoff/
+queue cases passed. Final cap/fee edge independently tested after arithmetic cap
+refinement; unaffected matrix not repeated. All requested operational branches
+are verified through appropriate fixture/unit layers; no merely asset/build-only
+completion claim. Private results: balance-allocation-workflow-results.json,
+balance-allocation-server-guard-results.json, screenshots and fixture scripts.
