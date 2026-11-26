@@ -53,6 +53,26 @@ DATE: 12 NOVEMBER 2026
 - Staff note after verified release: "An unpaid deposit was reducing the amount
   shown as owing. The breakdown now shows the full unpaid amount, and new bookings
   save it correctly. Refresh Booking Details."
+- Released4f1fca6cfd342db73168315504d13b5e9d01459c (includes pending93f07ed);
+  Main Git-triggered Production dpl_Crj6iR9bzk8Z1PZ2HEac6TJ49fgs READY, exact-SHA
+  deployment list and actual book.zingara.co.za alias verified26Nov2026. Clean
+  build compiled successfully; budget raw1310678/1320000,gzip318565/320000,
+  largest169236/170000. No raised budget or new normal data requests/dependencies.
+- Live /admin,/book HTTP200; payment-link unauthenticated POST401. Actual staff
+  Production workflow remains unverified, distinguished from authenticated isolated
+  actual-handler fixture. No real checkout, customer link or communication QA.
+- Before/after booking hash ad0dfb943a5963e46932362a0fe352a9 and payments hash
+  ceea0b4bdea0ced6bc9c441ccb521861 identical. Raw saved balance remains13350 by
+  design; display/new reservations use correct21600,paid0. No historical data repair
+  silently performed and genuine amendment-basis guard not weakened. Accounts owns
+  historical raw reconciliation and three Corporate contract candidates.
+- BUG40 status completed with above three-sentence staff note and one audit record
+  attributed System(authorised release maintenance), not impersonated staff.
+  This closes display/new-reservation defect, not the outstanding historical data
+  reconciliation. Only issue/audit metadata changed; no business rows/migration.
+- Release rollback is scoped application revert of4f1fca6; no database migration
+  rollback required. Private evidence and Frontend2 checkpoints untouched. Final
+  verified Markdown retained as local commit for next authorised release per README.
 
 ## Reference Reconciliation
 

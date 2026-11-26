@@ -1,6 +1,6 @@
 # BUG-000040: Unpaid Booking Payment Breakdown
 
-STATUS: VERIFIED LOCALLY; AUTHORISED PRODUCTION RELEASE IN PROGRESS
+STATUS: RELEASED / READY; HISTORICAL RAW-BALANCE RECONCILIATION REMAINS SEPARATE
 
 DATE: 26 NOVEMBER 2026
 
@@ -28,6 +28,19 @@ DATE: 26 NOVEMBER 2026
 - No real booking/payment/ticket/customer edits or messages. Frontend2 untouched.
   Include pending documentation93f07ed. Detailed evidence/limitations in existing
   archive/P0_BOOKING_PAYMENT_LINK_INTEGRITY_2026-11-12.md; private local-evidence/bug40-*.
+- Application4f1fca6cfd342db73168315504d13b5e9d01459c pushed Main with pending
+  documentation93f07ed. Production dpl_Crj6iR9bzk8Z1PZ2HEac6TJ49fgs READY;
+  exact-SHA list and live book.zingara.co.za alias verified. /admin,/book200;
+  unauthenticated payment-link POST401. No real customer payment/link created.
+- Clean Vercel budget raw1310678/1320000, gzip318565/320000, largest169236/170000
+  passed without budget changes. Booking/payment before/after hashes identical.
+  Only BUG40 status/three-sentence resolution updated with one System audit entry;
+  no booking/financial/schema/configuration change. Full authenticated Production
+  staff interaction remains unverified; actual handlers exercised with safe fixtures.
+- BUG40 display/new-reservation correction completed; historical raw balances and
+  three Corporate candidates still require separately authorised Accounts review.
+  Final verified records committed locally for next authorised release, avoiding a
+  redundant Markdown-only Production deployment under README workflow.
 
 ---
 
