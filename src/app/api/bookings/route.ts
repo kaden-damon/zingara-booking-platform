@@ -1,5 +1,6 @@
 import { findBookingCustomer } from "@/lib/bookingCustomerIdentity";
 import { normalizeAttendingGuestName } from "@/lib/bookingGuestName";
+import { resolveBookingOutstandingBalance } from "@/lib/paymentControls";
 import {
   type BookingLifecycleEvent,
   type BookingStatus,
@@ -973,7 +974,7 @@ async function reservePublicBookingAtomically(
   const claims = normalizeReservationClaims(booking);
 
   const primaryClaim = claims.find((claim) => claim.primary) ?? claims[0];
-  const bookingForReservation =
+  let bookingForReservation =
     !primaryClaim || primaryClaim.tableCode === booking.tableNumber
       ? booking
       : {
@@ -981,6 +982,12 @@ async function reservePublicBookingAtomically(
           tableId: primaryClaim.tableCode,
           tableNumber: primaryClaim.tableCode,
         };
+  bookingForReservation = { ...bookingForReservation, balanceDue: resolveBookingOutstandingBalance({
+    bookingOrigin: bookingForReservation.bookingOrigin, bookingSource: bookingForReservation.source,
+    bookingStatus: bookingForReservation.status, paymentStatus: bookingForReservation.paymentStatus,
+    totalAmount: bookingForReservation.totalPrice, confirmedPaidAmount: bookingForReservation.amountPaid ?? 0,
+    recordedOutstanding: bookingForReservation.balanceDue,
+  }) };
   const bookingPayload = getBookingPayload(
     bookingForReservation,
     customerId ?? "00000000-0000-0000-0000-000000000000",

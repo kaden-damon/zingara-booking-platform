@@ -86,6 +86,18 @@ test("scope filters financial totals and contacts, never exposing other-venue-on
   assert.equal(rows[0][customerExportColumns.outstanding], 0);
 });
 
+test("unpaid native export cannot subtract a deposit that has not been received", async () => {
+  const data = fixture();
+  Object.assign(data.bookings[0], { booking_origin: "admin_staff", booking_source: "admin", booking_status: "pending_payment", payment_status: "pending_payment", total_amount: 21600, amount_paid: 0, balance_outstanding: 13350 });
+  data.bookings = [data.bookings[0]]; data.payments = []; data.payment_refunds = [];
+  const { client } = clientFor(data);
+  const rows = await loadCustomerExportRows(client, { ...options, selectedIds: [id(1)] }, ["all"]);
+  assert.equal(rows[0][customerExportColumns.outstanding], 21600);
+  assert.equal(rows[0][customerExportColumns.payments], 0);
+  assert.equal(rows[0][customerExportColumns.recordedPaid], 0);
+  assert.equal(data.bookings[0].balance_outstanding, 13350);
+});
+
 test("selected customers intersect search/date/type filters and include no invisible unselected IDs", async () => {
   const data = fixture(); data.bookings[0].booking_origin = "corporate";
   const { client } = clientFor(data);

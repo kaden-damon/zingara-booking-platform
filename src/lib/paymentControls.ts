@@ -29,6 +29,25 @@ export function calculateOutstandingAmount(
   );
 }
 
+// A requested deposit is not a receipt. Keep contractual/imported balances intact.
+export function resolveBookingOutstandingBalance(input: {
+  bookingOrigin?: string | null;
+  bookingSource?: string | null;
+  bookingStatus?: string | null;
+  paymentStatus?: string | null;
+  totalAmount: number;
+  confirmedPaidAmount: number;
+  recordedOutstanding?: number | null;
+}) {
+  const native = input.bookingOrigin === "admin_staff" || input.bookingOrigin === "customer_public";
+  const active = ["new", "confirmed", "pending-payment", "pending_payment", "checked-in", "checked_in"].includes(input.bookingStatus ?? "");
+  if (native && active && (!input.bookingSource || ["admin", "online"].includes(input.bookingSource)) &&
+    ["pending-payment", "pending_payment"].includes(input.paymentStatus ?? "") && input.confirmedPaidAmount === 0) {
+    return calculateOutstandingAmount(input.totalAmount, 0);
+  }
+  return input.recordedOutstanding ?? calculateOutstandingAmount(input.totalAmount, input.confirmedPaidAmount);
+}
+
 export function isPaymentLinkEligible(input: {
   archived?: boolean;
   bookingStatus?: string | null;

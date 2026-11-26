@@ -1,3 +1,36 @@
+# BUG-000040: Unpaid Booking Payment Breakdown
+
+STATUS: VERIFIED LOCALLY; AUTHORISED PRODUCTION RELEASE IN PROGRESS
+
+DATE: 26 NOVEMBER 2026
+
+- Issue has no attached booking reference/image. Contemporaneous Fatima edit-lock
+  evidence identifies ZNG-QA6N4W: held11:10:55-11:14:15 SAST around11:13 report;
+  only acquisition in preceding20 minutes. Do not claim an explicit issue reference.
+- Original12Nov native Admin reservation saved R21600 total, R0 paid and R13350
+  balance by subtracting requested R8250 deposit before receipt. Creation audit
+  already inconsistent; no subsequent financial amendment. Pending R0 payment
+  placeholder is not a receipt. Recent cancellation/guest-count changes not cause.
+- Reuse paymentControls outstanding calculation at native reservation boundary,
+  Admin financial presentation, Table Plan and customer export. Label Deposit
+  requested. Preserve original loaded snapshots, all payment rows and contractual,
+  imported, paid/refunded/COMP/cancelled balances. No historical repricing/migration.
+- Bounded read-only scope:32 native active unpaid balance mismatches,21 future/
+  11 past, zero successful receipts among32. Three Corporate-direct candidates
+  excluded pending contract review. Historical raw balance correction remains a
+  separate Accounts-authorised reconciliation; genuine amendment basis guards stay.
+-90 original targeted tests passed; additional export regression and payment-link
+  checks passed17/17 (overlapping suites). TypeScript passes; lint0 errors with3
+  existing route warnings. Authenticated fixture actual GET/link handlers plus
+  actual financial function/breakdown JSX passed at390/1280: paid0,outstanding21600,
+  deposit requested8250, link21600, reopen correct; original raw13350 unchanged.
+  Harness is isolated and minimally styled, not full Production staff browser QA.
+- No real booking/payment/ticket/customer edits or messages. Frontend2 untouched.
+  Include pending documentation93f07ed. Detailed evidence/limitations in existing
+  archive/P0_BOOKING_PAYMENT_LINK_INTEGRITY_2026-11-12.md; private local-evidence/bug40-*.
+
+---
+
 # Temporary Table Management Permission Restoration
 
 STATUS: RELEASED / READY; BOTH-VENUE AUTHENTICATED FIXTURE LIFECYCLES VERIFIED

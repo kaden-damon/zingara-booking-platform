@@ -406,6 +406,7 @@ import {
 } from "../../lib/internalShowBookingPolicy";
 import {
   calculateOutstandingAmount,
+  resolveBookingOutstandingBalance,
   isPaymentLinkEligible,
 } from "../../lib/paymentControls";
 import {
@@ -4816,7 +4817,9 @@ function getBookingFinancials(booking: DemoBooking) {
   const balanceDue =
     paymentStatus === "comp-vip" || paymentStatus === "refunded"
       ? 0
-      : booking.balanceDue ?? Math.max(totalPrice - amountPaid, 0);
+      : resolveBookingOutstandingBalance({ bookingOrigin: booking.bookingOrigin,
+        bookingSource: booking.source, bookingStatus: booking.status, paymentStatus,
+        totalAmount: totalPrice, confirmedPaidAmount: amountPaid, recordedOutstanding: booking.balanceDue });
 
   return {
     addonsTotal,
@@ -39871,7 +39874,7 @@ export default function AdminDashboardPage({
                         {formatCurrency(financials.discountAmount)}
                         {financials.serviceFeeAmount > 0 &&
                           ` · Service Fee ${formatCurrency(financials.serviceFeeAmount)}`}
-                        {" · "}Deposit{" "}
+                        {" · "}Deposit requested{" "}
                         {formatCurrency(financials.depositAmount)}
                         {" · "}Paid{" "}
                         {formatCurrency(financials.amountPaid)}

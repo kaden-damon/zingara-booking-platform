@@ -1301,6 +1301,9 @@ function populateBookingDataRow(
   const confirmedPaidAmount = Math.max(Number(booking.amount_paid) || 0, 0);
   const paymentMetadata = getBookingPaymentMetadata(booking);
   const paymentSummary = resolveTablePlanPaymentSummary({
+    bookingOrigin: booking.booking_origin,
+    bookingStatus: booking.booking_status,
+    paymentStatus: booking.payment_status,
     amountPaid: booking.amount_paid,
     balanceOutstanding: booking.balance_outstanding,
     depositPercentage: paymentMetadata.depositPercentage,

@@ -1,4 +1,5 @@
 import { getComplimentaryInternalValue } from "../internalComplimentaryBooking.ts";
+import { resolveBookingOutstandingBalance } from "../paymentControls.ts";
 
 export type TablePlanFinancialPayment = {
   amount: number;
@@ -120,6 +121,9 @@ function toMoney(value: number | null | undefined) {
 }
 
 export function resolveTablePlanPaymentSummary(input: {
+  bookingOrigin?: string | null;
+  bookingStatus?: string | null;
+  paymentStatus?: string | null;
   amountPaid: number;
   balanceOutstanding: number;
   depositPercentage?: number | null;
@@ -136,7 +140,8 @@ export function resolveTablePlanPaymentSummary(input: {
     depositRequirement: toMoney(
       Math.ceil(toMoney(input.totalAmount) * (depositPercentage / 100)),
     ),
-    outstanding: toMoney(input.balanceOutstanding),
+    outstanding: toMoney(resolveBookingOutstandingBalance({ ...input,
+      confirmedPaidAmount: input.amountPaid, recordedOutstanding: input.balanceOutstanding })),
   };
 }
 

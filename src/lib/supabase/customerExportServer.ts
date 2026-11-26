@@ -4,6 +4,7 @@ import { normalizeStaffLocation } from "../staffLocations";
 import { getBookingExportType } from "../bookingsExport";
 import { successfulPaymentStatuses } from "../bookingManagementPolicy";
 import { toMoney } from "../bookingReconciliation";
+import { resolveBookingOutstandingBalance } from "../paymentControls";
 
 type Row = Record<string, unknown>;
 const batchSize = 500;
@@ -130,7 +131,7 @@ export async function loadCustomerExportRows(client: SupabaseClient, options: Cu
       notes: text(c.relationship_notes), dietary: text(c.dietary_requirements), marketing: text(preferences?.marketingPreference) || "Unknown", archived: preferences?.archivedAt ? "Yes" : "No",
       bookings: rows.length, guests: sum("guest_count", true), firstShow: dates[0] ?? "", lastShow: dates.at(-1) ?? "",
       venues: [...new Set(rows.map(b => text(relation(b.shows)?.venue)))].sort().join("; "), kinds: [...new Set(rows.map(kind))].sort().join("; "),
-      value: sum("total_amount", true), recordedPaid: sum("amount_paid"), payments: paid, refunds: refunded, netPayments: toMoney(paid - refunded), outstanding: sum("balance_outstanding", true),
+      value: sum("total_amount", true), recordedPaid: sum("amount_paid"), payments: paid, refunds: refunded, netPayments: toMoney(paid - refunded), outstanding: toMoney(rows.filter(b => !["cancelled", "refunded"].includes(text(b.booking_status))).reduce((s,b) => s + resolveBookingOutstandingBalance({ bookingOrigin: text(b.booking_origin), bookingSource: text(b.booking_source), bookingStatus: text(b.booking_status), paymentStatus: text(b.payment_status), totalAmount: amount(b.total_amount), confirmedPaidAmount: amount(b.amount_paid), recordedOutstanding: amount(b.balance_outstanding) }),0)),
       unitemised: toMoney(rows.reduce((s, b) => s + Math.max(0, amount(b.amount_paid) - (payments.get(text(b.id)) ?? 0)), 0)),
     };
     return Object.fromEntries(options.columns.map(key => [customerExportColumns[key], values[key]]));

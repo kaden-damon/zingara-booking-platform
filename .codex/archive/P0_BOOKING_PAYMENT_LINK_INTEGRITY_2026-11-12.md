@@ -4,6 +4,56 @@ STATUS: COMPLETE - SHARED FIX DEPLOYED; CUSTOMER REMEDIATION PENDING APPROVAL
 
 DATE: 12 NOVEMBER 2026
 
+## 26 November Follow-Up: BUG-000040
+
+- Authority: current user authorises scoped fix/release, no invented transactions.
+  Existing reservation API, getBookingFinancials, paymentControls, Table Plan finance
+  and customerExportServer reused; no new workflow, query, dependency or migration.
+- staff_issue_reports2a58030e-c8d8-4b96-84a7-31f94868c9a7 lacks attachment/reference.
+  Fatima's exclusive lock on booking40614773-2081-415f-a8a7-aeab9b985b3e,
+  ZNG-QA6N4W,11:10:55.797-11:14:15.954 SAST brackets11:13:25 report. Only her
+  acquisition in bounded preceding20min; competing lock rejected11:12:27.
+- CPT15Dec18:00,15PB guests, native admin_staff/admin pending_payment, unassigned.
+  Original12Nov10:34:47 SAST creation already saved R21600 total/R0 paid/R13350
+  balance, subtracting requested15xR550 deposit before payment. Original notes
+  match; no later financial amendment. One R0 pending platform payment, no provider
+  identity/receipt; no successful or legacy payment evidence. This is a persisted
+  projection/display defect, not actual collection or recent cancellation regression.
+- Root path: checkout balanceDue legitimately projects balance AFTER requested
+  payment. Trusted Admin reservation copied that projection while paid remained0;
+  public authoritative pricing already used full unpaid total. Correct new native
+  reservations before getBookingPayload, including embedded notes, without changing
+  generic historical booking update semantics. Shared narrowly guarded resolver
+  corrects active native pending/zero-paid presentation and exports; reuses exact
+  cents total-minus-confirmed-paid. Imported/corporate_direct/paid/cancelled/refunded/
+  COMP balances and original loaded snapshots remain untouched. Deposit requested
+  distinguishes demand from receipt. Existing payment links already use total-paid.
+- Bounded indexed active/unarchived unpaid mismatch query found32 native Admin
+  bookings,21 future and11 past; all32 have zero successful payment entries. Three
+  Corporate-direct candidates ZNG-9EXVKZ(R30600),ZNG-YY5W8V(R51975),ZNG-BE4CYH
+  (R48600) have zero paid/balance and require separate contract evidence, not this
+  native correction. Counts are a dated candidate scan, not platform-wide loss.
+- Historical row/metadata values are intentionally NOT rewritten. Accounts review
+  and separate authorised reconciliation needed for raw balances; reduction-basis
+  mismatch safeguard remains active. No bypass or automatic repricing. No customer
+  communications, payment, seating, tickets, public prices or Frontend2 changes.
+- Verification:90 focused tests before additional CRM regression;17/17 subsequent
+  CRM/payment-controls/link checks overlap prior suites. TypeScript passed, lint0
+  errors/3 existing route warnings, diff check passed. Original BUG37/38/39,
+  cancellation/partial-paid/outstanding-allocation/ticket-sync tests retained.
+- Isolated authenticated fixture uses actual GET/link handlers, real staff permission
+  checks and temporary cloned SQL functions with rollback, actual financial function
+  and extracted Full price breakdown JSX. Paid0/deposit requested8250/outstanding
+  21600/link21600; close/reopen correct, original raw13350 preserved, no payment
+  created.390/1280 screenshots have no overflow. Harness is minimally styled, NOT
+  a full authenticated Production Admin interaction or physical iPhone verification.
+  Private local-evidence/bug40-workflow-results.json and bug40-breakdown-*.png.
+- Release baseline Main1d92065/dpl_58qBfqYtpbZVeyMVwn6zStWMBQq6; pending local
+  documentation93f07ed included. Final READY/alias/budget evidence to follow.
+- Staff note after verified release: "An unpaid deposit was reducing the amount
+  shown as owing. The breakdown now shows the full unpaid amount, and new bookings
+  save it correctly. Refresh Booking Details."
+
 ## Reference Reconciliation
 
 ### ZNG-C7CD9T - Standard
