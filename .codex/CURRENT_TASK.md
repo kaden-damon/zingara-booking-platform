@@ -1,3 +1,43 @@
+# Authorised Meditech Booking Reconciliation
+
+STATUS: COMPLETED IN PRODUCTION; SAVED STATE, CAPACITY AND EXPORT CHECKS VERIFIED
+
+DATE: 26 NOVEMBER 2026
+
+- Explicit Kaden authority now resolves previous open quote/count exception:
+  ZNG-YHKCS7, Itumeleng Meditech, JHB27Feb2027 Private Booths60->20, preserve
+  revised total32400,paid0,balance32400; release40 reserved guests. Do NOT prorate
+  the revised32400 again or restore97200. No refund/bar credit/payment/new booking.
+- Recovered existing findings and source mechanisms, no repeated investigation.
+  Reused reconcile_corporate_booking_guest_count_atomic for the authorised fixed
+  total count change, with normal staff/venue/revision/seating/entitlement guards.
+  Same guarded transaction corrects explicitly approved financial components:
+  subtotal28800 (20x1440),gratuity3600 (12.5%),metadata/Corporate invoice outstanding
+ 32400. Total and paid unchanged; source audit history retained, no policy allocation
+  or credit fabricated. Existing exclusive edit-lock acquire/release used and audited.
+- Rollback-only real-row verification passed, then authorised transaction committed.
+  Independent readback:20PB,tickets28800,gratuity3600,total32400,paid0,outstanding32400,
+  original pending-payment status/booking/customer identity preserved, still unassigned.
+  Existing capacity calculation PB reservations60->20; permanent effective cap138
+  unchanged. GC ZNG-LVGP5J120 and MR ZNG-B8UKFZ120 complete booking/payment/ticket/
+  table snapshots unchanged; overall group300->260. Target payments/tables unchanged;
+  all60 original ticket rows/QR identities retained,20 remain valid and40 excess
+  tickets voided by the existing reduction lifecycle. Booking itself NOT cancelled.
+  No physical seating or other booking altered. Own lock released.
+- Actual application Table Plan generator exercised against saved group records
+  and existing template/settings: target appears once, row28,D20; summary PaidR0 /
+  OutstandingR32400, charged-but-unpaid gratuity3600. Function Brief financial
+  resolver verifies ticket28800,paid0,gratuity-paid0 (charge3600 remains intact).
+  No visual PDF or real authenticated browser action claimed. No invoices or
+  communications issued. Timeline records Kaden approval/count/component correction.
+- Private before/rollback/apply/readback evidence: local-evidence/meditech-authorised-*;
+  export check meditech-export-verification.json /meditech-group-table-plan-verified.xlsx.
+  No application code, function, migration, global rule or deployment change needed.
+  Frontend2 untouched. Markdown committed locally for next authorised release per
+  README; prior pending da1ecb4 protected. Do not repeat the committed amendment.
+
+---
+
 # Authorised AVA Events And R & C Trading Amendments
 
 STATUS: RELEASED / READY; BOTH AUTHORISED PRODUCTION AMENDMENTS COMMITTED AND VERIFIED
@@ -69,7 +109,7 @@ DATE: 26 NOVEMBER 2026
 
 # Unpaid Corporate Guest Reduction: Meditech
 
-STATUS: RELEASED / READY; ORIGINAL WORKFLOW VERIFIED; REAL QUOTE EXCEPTION OPEN
+STATUS: RELEASED / READY; ORIGINAL WORKFLOW VERIFIED; QUOTE EXCEPTION RESOLVED BY AUTHORISED RECONCILIATION ABOVE
 
 DATE: 26 NOVEMBER 2026
 

@@ -5,6 +5,56 @@ Status: released to Production / READY; non-mutating live verification complete.
 
 ## Authority And Scope
 
+### 26 November Authorised Meditech Reconciliation: Completed
+
+This dated follow-up supersedes the previously OPEN Meditech quote/count data
+exception below, not its historical investigation/evidence. Current user/Kaden
+explicitly authorises ZNG-YHKCS7/JHB27Feb2027 PB60->20 at the already revised
+R32400 total, R0 paid, R32400 outstanding, with GC/MR bookings unchanged. No new
+phase, global rule or application development required.
+
+Reused existing Corporate fixed-total guest-count transaction (not a second
+proportional reduction). Acquired existing exclusive edit-lock record, enforced
+original revision/identity/paid state, guarded against any active competing editor,
+retained normal venue/staff/seating/entitlement validation. In the same authorised
+atomic transaction, reconciled source components from ticket21600/gratuity10800
+to ticket28800 (20x1440)/gratuity3600 (12.5%), total32400 unchanged. Synchronised
+existing booking metadata and Corporate invoice outstanding field; no restoration
+to97200, refund, bar allocation, payment or fake financial transaction. Original
+audit records/financial history remain; new Timeline reason explicitly records
+Kaden's approval and automated execution. Session lock acquired/released with audit.
+
+Rollback-only real-row check passed before committing; pre-commit checks ensure
+no payment changes, same other-zone booking rows, group260, exact target financials
+and actual40-pax capacity release. Independent Production readback confirms:
+- ZNG-YHKCS7:20 guests,subtotal28800,servicefee3600,total32400,paid0,balance32400,
+  same identity/customer/performance/Private Booths, original pending_payment state,
+  table_id still null as before. Zone entitlement now20; no booking cancellation.
+- ZNG-LVGP5J GC120 and ZNG-B8UKFZ MR120 unchanged in full booking/payment/ticket/
+  table snapshots. Overall group260 rather than300. Target retains all60 original
+  ticket rows and QR identities; the existing reduction lifecycle leaves20 valid
+  and voids40 excess tickets. No ticket deletion/duplication or booking cancellation.
+  No payment/physical table change, new booking/customer, credit or refund.
+- Existing show-level PB occupancy helper60->20, effective/permanent zone limit138
+  unchanged:40 places released. No invented physical capacity or table assignment.
+  Session edit lock released; four audit entries cover count/components/lock lifecycle.
+
+Relevant exports verified from saved Production records using existing template,
+settings and application code. Group-scoped Table Plan workbook target row28
+appears once with20 guests, PaidR0 / OutstandingR32400 and charged-but-unpaid
+gratuityR3600. Function Brief financial resolver reports ticket28800/full paid0/
+gratuity paid0, while stored gratuity charge remains3600. No full-PDF visual QA or
+authenticated Production browser click claimed; no new accounting document or
+customer communication issued. Private evidence in local-evidence/meditech-
+authorised-{before,rollback-results,apply-results,final}.json, guarded SQL,
+meditech-export-verification.json and meditech-group-table-plan-verified.xlsx.
+
+No application code/migration/function/global configuration change or deployment.
+Frontend2 untouched; previous local documentation commit da1ecb4 retained. Final
+records committed locally for next authorised release under README exception,
+avoiding a redundant documentation-only Production deployment. Actual requested
+amendment is complete; do not run it again from the old60-guest snapshot.
+
 ### 26 November Authorised Amendments: AVA Events And R & C Trading
 
 Current user authorises actual Production amendments, AVA's cancellation-period
