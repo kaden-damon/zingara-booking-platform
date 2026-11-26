@@ -1,6 +1,6 @@
 # Guest Reduction: Allocate Towards Outstanding Balance
 
-STATUS: FUNCTIONAL VERIFICATION PASSED; AUTHORISED PRODUCTION RELEASE IN PROGRESS
+STATUS: RELEASED / READY; INSTALLED AUTHENTICATED FIXTURE WORKFLOW VERIFIED
 
 DATE: 26 NOVEMBER 2026
 
@@ -39,6 +39,20 @@ DATE: 26 NOVEMBER 2026
   preserve known November12 ledger discrepancy. Private originals/fixtures/results
   local-evidence/balance-*. Include pending documentation142cefc in release.
 - Continue in archive/CANCELLATION_POLICY_WORKFLOW_UPDATE_2026-11-23.md.
+- Release6203a65d5adfb8c17ef6c93bad7fb14974770bbc includes pending142cefc;
+  Main/live book.zingara.co.za ->dpl_A2LFVitMPTwUiHvNAe28srNAyf2A READY, exact-SHA
+  list/live alias verified. Migration applied/recorded alone after READY. Actual
+  reference/BUG37/38/39 booking/payment/ticket/table hashes unchanged; only policy
+  function changed among protected functions. No retrospective allocation.
+- Installed SQL smoke repeated actual authenticated fixture modal save/reopen,
+  current payment-link create/view,9 valid tickets/same table/unchangedR6600 receipt,
+  R6362.50 link and401/403 restrictions. All essential scenarios passed before
+  release; real Production customer amendment/physical iPhone intentionally unverified.
+- Clean Vercel budget raw1310041/1320000, gzip318384/320000, largest169055/170000;
+  live /admin,/book200 and unauthenticated reconciliation401. Private final evidence
+  balance-allocation-live-release.json /installed-verification.json /
+  installed-workflow-results.json. Final records committed locally for next
+  authorised release, avoiding redundant Markdown-only Production deployment.
 
 ---
 

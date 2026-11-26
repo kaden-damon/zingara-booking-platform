@@ -390,7 +390,7 @@ Pending documentation2e46ffc and b7424f1 explicitly included in this release.
 
 ## Allocate Towards Outstanding Balance — 26 November 2026
 
-Status: complete authenticated fixture checks passed; authorised release in progress.
+Status: released / READY; installed authenticated fixture workflow verified.
 Authority: current user request, Fatima approval25November. No new phase.
 
 BUG39 prerequisite freshly verified: live bfce278 READY at
@@ -487,3 +487,41 @@ refinement; unaffected matrix not repeated. All requested operational branches
 are verified through appropriate fixture/unit layers; no merely asset/build-only
 completion claim. Private results: balance-allocation-workflow-results.json,
 balance-allocation-server-guard-results.json, screenshots and fixture scripts.
+
+### Verified Production Release
+
+- Commit6203a65d5adfb8c17ef6c93bad7fb14974770bbc pushed Main, including pending
+  BUG39 documentation142cefc. Vercel dpl_A2LFVitMPTwUiHvNAe28srNAyf2A READY;
+  exact-SHA deployment list and actual book.zingara.co.za alias match this release.
+- Migration20261126120000 applied/recorded individually after matching application
+  READY. Known November12 ledger discrepancy untouched. Only the existing policy
+  function changed among protected functions; original basis, native/Corporate
+  delegates, ticket hooks/guard and both payment-link functions retain their hashes.
+- Before/after exact row hashes identical for ZNG-6F3BT2, ZNG-AMP82L, ZNG-XSUC8A
+  and ZNG-86Q76S: bookings, payments, tickets and assigned table rows unchanged.
+  No refund, repricing, reference allocation conversion or customer communication.
+- Actual installed SQL repeated in the authenticated local fixture smoke: actual
+  modal -> actual server auth/GET/POST -> save -> close/reopen -> actual current-link
+  create/lookup. Nine valid tickets, original receiptR6600/table retained, old links
+  revoked, new linkR6362.50;401 unauthenticated/403 restricted staff. This is safe
+  installed-function evidence, not a genuine Production staff/customer amendment.
+- All requested fixture/calculation/security branches PASSED; no remaining failed
+  check or operational block identified. Real Production staff mutation, provider
+  payment initiation, external Wallet delivery and physical iPhone remain UNVERIFIED
+  intentionally, not represented as passed. Corporate fixture Wallet notification
+  lacked external configuration and was safely caught; no real delivery attempted.
+- Clean Vercel build budgets pass unchanged thresholds: raw1310041/1320000,
+  gzip318384/320000, largest gzip169055/170000. Versus BUG39 baseline only150 gzip
+  bytes added; no new normal-screen queries, requests, dependencies or architecture.
+- Live /admin and /book HTTP200; unauthenticated reconciliation POST401. Private
+  evidence: balance-allocation-live-release.json, installed-verification.json,
+  installed-functions.json and installed-workflow-results.json. Original function
+  rollback checkpoint remains balance-allocation-original-functions.json; rollback
+  must coordinate application/function versions, never rewind business records.
+- Staff: Booking Details -> Edit Guest Count -> eligible reduced count ->
+  Eligible ticket value only -> Allocate towards outstanding balance -> confirm.
+  Choice shown only when funds/balance/cutoff permit. Existing prior allocations
+  remain protected; ZNG-6F3BT2 was NOT retrospectively modified. Approved preserved
+  fee distinction remains ticketR6352.50 versus overallR6362.50 if applied.
+- Final verification records committed locally for next authorised release under
+  the existing no-redundant-documentation-deployment rule. Frontend2.0 untouched.
