@@ -19236,6 +19236,7 @@ export default function AdminDashboardPage({
   async function saveFinancialReconciliation(draft: {
     amountPaid: number;
     legacyInvoiceEvidence?: {
+      discountAmount?: number;
       sourceDocument: string;
       sourceGratuityAmount: number;
       sourceTicketAmount: number;

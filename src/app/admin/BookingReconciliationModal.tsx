@@ -143,6 +143,7 @@ export function FinancialReconciliationModal(
     onSave: (draft: {
       amountPaid: number;
       legacyInvoiceEvidence?: {
+        discountAmount?: number;
         sourceDocument: string;
         sourceGratuityAmount: number;
         sourceTicketAmount: number;
@@ -162,6 +163,7 @@ export function FinancialReconciliationModal(
     sourceDocument: "",
     sourceGratuityAmount: 0,
     sourceTicketAmount: 0,
+    discountAmount: 0,
   });
   const requiresImportedEvidence =
     booking.bookingOrigin === "data_import" &&
@@ -199,7 +201,7 @@ export function FinancialReconciliationModal(
       <p className="mt-2 text-xs text-zinc-500">Total Booking Amount is the total value of this booking.</p>
       {requiresImportedEvidence && (
         <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-950/15 p-4">
-          <p className="text-xs font-semibold uppercase text-amber-200">Imported Invoice Evidence</p>
+          <p className="text-xs font-semibold uppercase text-amber-200">Imported Quote / Invoice</p>
           <p className="mt-2 text-xs text-zinc-400">Record the reviewed invoice references and allocation. This does not create PayFast evidence.</p>
           <label className="mt-3 block text-xs font-semibold uppercase text-zinc-400">
             Invoice reference(s) *
@@ -208,6 +210,7 @@ export function FinancialReconciliationModal(
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <MoneyInput label="Ticket Value" value={draft.sourceTicketAmount} onChange={(sourceTicketAmount) => setDraft((current) => ({ ...current, sourceTicketAmount }))} />
             <MoneyInput label="Gratuity" value={draft.sourceGratuityAmount} onChange={(sourceGratuityAmount) => setDraft((current) => ({ ...current, sourceGratuityAmount }))} />
+            <MoneyInput label="Agreed deduction (not a payment)" value={draft.discountAmount} onChange={(discountAmount) => setDraft((current) => ({ ...current, discountAmount }))} />
           </div>
         </section>
       )}
@@ -223,7 +226,7 @@ export function FinancialReconciliationModal(
         <textarea rows={3} value={draft.reason} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} className="w-full rounded-xl border border-white/15 bg-black px-3 py-3 text-white outline-none focus:border-[#D8C36A]" />
       </label>
       {props.error && <p role="alert" className="mt-3 text-sm text-red-200">{props.error}</p>}
-      <button type="button" disabled={props.isSaving || Boolean(validation) || (requiresImportedEvidence && (!draft.sourceDocument.trim() || toMoney(draft.sourceTicketAmount + draft.sourceGratuityAmount) !== toMoney(draft.totalAmount)))} onClick={() => props.onSave({ amountPaid: draft.amountPaid, reason: draft.reason, totalAmount: draft.totalAmount, legacyInvoiceEvidence: requiresImportedEvidence ? { sourceDocument: draft.sourceDocument, sourceGratuityAmount: draft.sourceGratuityAmount, sourceTicketAmount: draft.sourceTicketAmount } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
+      <button type="button" disabled={props.isSaving || Boolean(validation) || (requiresImportedEvidence && (!draft.sourceDocument.trim() || draft.discountAmount < 0 || toMoney(draft.sourceTicketAmount + draft.sourceGratuityAmount - draft.discountAmount) !== toMoney(draft.totalAmount)))} onClick={() => props.onSave({ amountPaid: draft.amountPaid, reason: draft.reason, totalAmount: draft.totalAmount, legacyInvoiceEvidence: requiresImportedEvidence ? { discountAmount: draft.discountAmount, sourceDocument: draft.sourceDocument, sourceGratuityAmount: draft.sourceGratuityAmount, sourceTicketAmount: draft.sourceTicketAmount } : undefined })} className="mt-5 min-h-12 w-full rounded-full bg-[#D8C36A] px-5 text-sm font-semibold uppercase text-black disabled:cursor-not-allowed disabled:opacity-40">
         {props.isSaving ? "Saving..." : corporatePrice ? "Confirm agreed price" : "Save payment correction"}
       </button>
     </ModalFrame>
@@ -304,12 +307,13 @@ export function GuestCountReconciliationModal(
   }) : null;
   const basis = confirmedBasis ?? savedBasis;
   const isBuyoutReduction = Boolean(basis?.blockedReason?.startsWith("Buyout:"));
+  const isZeroCompReduction = booking.paymentStatus === "comp_vip" && booking.totalAmount === 0 && booking.amountPaid === 0;
   const defaultReductionPreview = basis ? previewGuestReduction(basis, draft.guestCount) : null;
   const effectiveDisposition = defaultReductionPreview?.eligibleTicketAmount === 0 ? "review-refund" : reductionDisposition;
   const reductionPreview = effectiveDisposition === "review-refund" ? defaultReductionPreview
     : basis ? previewGuestReduction(basis, draft.guestCount, effectiveDisposition) : null;
   const unpaidReduction = booking.amountPaid === 0 && reductionPreview?.fullRefundWindow === true;
-  const reductionBlocked = isReduction && !isBuyoutReduction && !reductionPreview;
+  const reductionBlocked = isReduction && !isBuyoutReduction && !isZeroCompReduction && !reductionPreview;
   const isComplimentaryIncrease =
     financials.addedGuests > 0 &&
     booking.paymentStatus === "comp_vip" &&
@@ -367,8 +371,8 @@ export function GuestCountReconciliationModal(
     setSubmissionError("");
     props.onSave({
       guestCount: draft.guestCount,
-      reductionDisposition: isReduction && !isBuyoutReduction && !unpaidReduction ? effectiveDisposition : undefined,
-      reductionOperationId: isReduction && !isBuyoutReduction ? operationId : undefined,
+      reductionDisposition: isReduction && !isBuyoutReduction && !isZeroCompReduction && !unpaidReduction ? effectiveDisposition : undefined,
+      reductionOperationId: isReduction && !isBuyoutReduction && !isZeroCompReduction ? operationId : undefined,
       expectedReductionPreview: reductionPreview,
       expectedAdditionalAmount: financials.additionalAmount ?? undefined,
       manualPaymentBasis: requiresManualFinancialBasis
@@ -493,7 +497,7 @@ export function GuestCountReconciliationModal(
           {!confirmedBasis && <p className="mt-2 text-xs text-amber-200">Complete and confirm the breakdown to review the reduction.</p>}
         </section>
       )}
-      {isReduction && !isBuyoutReduction && !savedBasis?.componentConfirmationRequired && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
+      {isReduction && !isBuyoutReduction && !isZeroCompReduction && !savedBasis?.componentConfirmationRequired && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
       {reductionPreview && (
         <section className="mt-4 rounded-xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
           <p className="text-xs font-semibold uppercase text-[#F2D66C]">{unpaidReduction ? "Guest reduction" : "Cancellation Allocation"}</p>

@@ -252,6 +252,7 @@ export async function POST(request: Request) {
       reductionOperationId?: string;
       expectedReductionPreview?: Record<string, unknown>;
       legacyInvoiceEvidence?: {
+        discountAmount?: number;
         sourceDocument?: string;
         sourceGratuityAmount?: number;
         sourceTicketAmount?: number;
@@ -339,6 +340,8 @@ export async function POST(request: Request) {
       bookingContext?.booking_source === "corporate-direct";
     const isReduction = body.action === "guest-count" && bookingContext &&
       Number(body.guestCount) < Number(bookingContext.guest_count);
+    const isZeroCompReduction = bookingContext?.payment_status === "comp_vip" &&
+      Number(bookingContext.total_amount) === 0 && Number(bookingContext.amount_paid) === 0;
     let reductionBasis = isReduction
       ? await loadGuestReductionBasis(auth.serviceClient, bookingContext.id) : null;
     if (reductionBasis?.componentConfirmationRequired) {
@@ -352,7 +355,7 @@ export async function POST(request: Request) {
     const isBuyoutReduction = Boolean(reductionBasis?.blockedReason?.startsWith("Buyout:"));
     const isReductionReplay = body.action === "guest-count" && Boolean(body.reductionOperationId?.trim()) &&
       Number(body.guestCount) === Number(bookingContext?.guest_count);
-    const policyReduction = (isReduction && !isBuyoutReduction) || isReductionReplay;
+    const policyReduction = (isReduction && !isBuyoutReduction && !isZeroCompReduction) || isReductionReplay;
     const defaultReductionPreview = policyReduction && reductionBasis
       ? previewGuestReduction(reductionBasis, Number(body.guestCount)) : null;
     const reductionDisposition = body.reductionDisposition ??
@@ -457,6 +460,7 @@ export async function POST(request: Request) {
       }
       if (hasLegacyInvoiceEvidence) {
         const evidence = body.legacyInvoiceEvidence!;
+        const deduction = Number(evidence.discountAmount ?? 0);
         const sourceDocument = evidence.sourceDocument?.trim() ?? "";
         const sourceTicketAmount = toMoney(Number(evidence.sourceTicketAmount));
         const sourceGratuityAmount = toMoney(Number(evidence.sourceGratuityAmount));
@@ -464,7 +468,8 @@ export async function POST(request: Request) {
           !sourceDocument ||
           sourceTicketAmount <= 0 ||
           sourceGratuityAmount < 0 ||
-          toMoney(sourceTicketAmount + sourceGratuityAmount) !==
+          !Number.isFinite(deduction) || deduction < 0 ||
+          toMoney(sourceTicketAmount + sourceGratuityAmount - deduction) !==
             toMoney(Number(body.totalAmount))
         ) {
           return Response.json(
@@ -564,6 +569,7 @@ export async function POST(request: Request) {
           ? {
               ...requestMetadata,
               p_amount_paid: toMoney(Number(body.amountPaid)),
+              p_discount_amount: toMoney(Number(body.legacyInvoiceEvidence!.discountAmount ?? 0)),
               p_source_document: body.legacyInvoiceEvidence!.sourceDocument!.trim(),
               p_source_gratuity_amount: toMoney(Number(body.legacyInvoiceEvidence!.sourceGratuityAmount)),
               p_source_ticket_amount: toMoney(Number(body.legacyInvoiceEvidence!.sourceTicketAmount)),

@@ -35,6 +35,7 @@ export type TablePlanValueAllocation = {
   ticketAmount: number;
   ticketGratuityAmount: number;
   ticketGratuityPaidAmount?: number;
+  barGratuityAmount?: number;
 };
 
 export type TablePlanFinancialBreakdown = {
@@ -283,7 +284,7 @@ export function calculateTablePlanFinancialBreakdown(
   const isStandardComplimentary =
     isComplimentary && (category === null || category === "standard");
   const breakdown: TablePlanFinancialBreakdown = {
-    barGratuityAmount: toMoney(legacyEvidence?.bar_gratuity_amount),
+    barGratuityAmount: toMoney(valueAllocation?.barGratuityAmount ?? legacyEvidence?.bar_gratuity_amount),
     barTabPaidAmount: valueAllocation
       ? toMoney(valueAllocation.barTabAmount)
       : toMoney(legacyEvidence?.bar_tab_paid_amount),

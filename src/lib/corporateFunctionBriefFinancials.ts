@@ -108,7 +108,7 @@ function parseMetadata(notes: string | null | undefined) {
       addons?: FinancialAddon[];
       commercialModel?: string;
       gratuityPolicy?: GratuityPolicy;
-      valueAllocation?: { ticketAmount: number; ticketGratuityAmount: number; ticketGratuityPaidAmount?: number; barTabAmount: number };
+      valueAllocation?: { ticketAmount: number; ticketGratuityAmount: number; ticketGratuityPaidAmount?: number; barTabAmount: number; barGratuityAmount?: number };
     pricingProvenance?: { bookingFeeAmount?: number };
     };
   } catch {
@@ -167,7 +167,7 @@ export function resolveCorporateFunctionBriefFinancials(
   )) {
     return {
       addOns: getAddOns(metadata?.addons ?? [], money(input.addonsTotal), 0),
-      barGratuityPaid: money(input.evidence?.bar_gratuity_amount),
+      barGratuityPaid: money(allocation.barGratuityAmount ?? input.evidence?.bar_gratuity_amount),
       barTabAmount: allocation.barTabAmount, bookingFeeAmount: 0,
       fullPaymentAmount: money(input.amountPaid),
       ticketGratuityPaid: allocation.ticketGratuityPaidAmount ?? allocation.ticketGratuityAmount, ticketValue: allocation.ticketAmount,

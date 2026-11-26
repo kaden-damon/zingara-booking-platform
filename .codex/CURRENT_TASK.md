@@ -1,3 +1,45 @@
+# Authorised AVA Events And R & C Trading Amendments
+
+STATUS: VERIFIED IN FIXTURES/ROLLBACK; CODE RELEASE AND AUTHORISED DATA COMMIT PENDING
+
+DATE: 26 NOVEMBER 2026
+
+- Current user explicitly authorises both real amendments, including AVA's delayed
+  processing cutoff exception. No global cutoff change or permanent override.
+- AVA ZNG-KBP646/JHB2Dec:32->28. Existing paid65340 verified against2Nov Vanessa
+  financial-reconciliation audit (no payment rows/provider receipt; do not invent
+  tender). Components tickets46080/show gratuity5760/bar12000/bar gratuity1500.
+  Do not use unseparated generic59570 ticket basis/default10 fee. Four tickets5760
+  move to bar, newbar17760; remaining tickets40320/show gratuity5040; bar gratuity
+  1500 preserved. Cancelled show gratuity720 stays refund-review reserve, no refund
+  issued or bar transfer. Total/paid65340 and outstanding0 remain unchanged.
+- Taylor DP-KNDVPC/JHB28NovGC: imported24COMP0 ->14. Source PDF quoteVRJHB295,
+  26Nov2026 verified text/render: ticket16100/gratuity2012.50/gross18112.50 less
+  trade exchange14196.23/net3916.27. PDF TOTAL itself is3916.27. Use existing
+  agreed price deduction field, explicitly non-cash; preserve gross components,
+  gratuity basis and actual cash paid0. Never add fake EFT/payment evidence.
+- Confirmed save root: old imported invoice correction forces paid=total and
+  records full EFT evidence. Extend same RPC with discount parameter and narrow
+  unpaid imported COMP conversion; retain original paid signature unchanged.
+  Reuse same financial form (conditional agreed deduction) and server validation.
+  Zero-valued COMP count changes reuse existing delegate without cash allocation.
+  Function Brief/Table Plan now retain explicit allocated bar gratuity separately.
+-80 targeted regressions pass; TypeScript/targeted lint pass. Authenticated actual
+  modal/API/temporary SQL fixture reduces COMP24->14, saves/reopens quote correctly,
+  unchanged zero-payment row/group QR/seating. Seven financial/security guards
+  tested separately. Rollback-only real-row exercise verifies both exact outcomes,
+  existing seating retained, AVA28 valid original tickets/Taylor1 original groupQR.
+- Snapshot/functions/guarded transaction private local-evidence/authorised-*. No
+  accounting docs found for either booking; no document/communication issued.
+  One-off AVA reuses copied policy function in session-temporary schema, restricted
+  to exact booking/actor/count/request/paid state; original global function unchanged.
+  Normal cancellation rules stay. Final SQL checks payments/QR/seating before commit,
+  acquires/releases existing edit-lock records and records explicit Timeline approval.
+- Include pending d0ec367; no Frontend2 changes. Existing archive cancellation record
+  contains detail; final deployment/migration/data verification evidence to follow.
+
+---
+
 # Unpaid Corporate Guest Reduction: Meditech
 
 STATUS: RELEASED / READY; ORIGINAL WORKFLOW VERIFIED; REAL QUOTE EXCEPTION OPEN
