@@ -293,3 +293,64 @@ No actual live amendment made or authenticated end-to-end save claimed.
 Permanent mandatory doctrine recorded in AGENTS.md and .codex/README.md; current
 task updated. Documentation-only changes remain local alongside existing records.
 No code/database changes, new release, repeated audit or Frontend 2.0 access.
+
+## BUG-000039 — Ordinary Outstanding Balances — 26 November 2026
+
+Status: correction verified; authorised Production release in progress.
+
+Original issue9007e76c-6d93-45ad-ac67-cc02406345e3 (Rasmus) explicitly reports
+the Accounts block for deposits and other balances. Privately inspected attached
+Guest Count.JPG (attachment5c2b7019-010f-4858-81fe-0608b7fc47ea): ZNG-AMP82L,
+15->14 guests, Royal Balcony800. Read-only booking evidence: native admin Standard,
+1 December17:00, totalR21094, paidR8250, balanceR12844, service feeR2344, no add-ons,
+one deposit-paid receiptR8250. No booking/customer/payment/seat changes authorised.
+
+Confirmed regression: November23 booking_guest_reduction_basis rejects non-fully-
+paid bookings except exact native R550-per-guest deposits with zero service fee,
+zero add-ons and explicit provenance. This ordinary deposit misses that exception
+because of its recorded service fee. Prior atomic guest-count delegates have no
+such blanket paid-status requirement; the new cancellation wrapper introduced it.
+Do not remove the block alone: its original preview otherwise treats all released
+ticket/gratuity obligations as paid money, inventing refund/bar entitlements.
+
+Change contract: reuse GuestCountReconciliationModal, existing reconciliation API,
+guestReductionPolicy.ts, existing two policy SQL functions and unchanged native/
+Corporate delegates. Validate saved paid/balance/status consistency, not a blanket
+fully-paid gate. Net non-forfeited released tickets against outstanding obligations
+first, then cancelled unpaid gratuity. Only genuine remaining released paid value
+enters the existing refund-review/bar workflow. Preserve exact previously supported
+deposit allocation. Full-paid results and five/seven-day deadlines unchanged;
+late Corporate tickets remain forfeited, associated prepaid gratuity forfeited,
+remaining gratuity retained. Standard late applicable deposit remains forfeited.
+No automatic refund, new receipt, fee invention or retrospective adjustment.
+
+Before-cutoff reported example safely previews R19688.40 total, R8250 paid,
+R11438.40 outstanding, no released paid refund/bar or Accounts requirement.
+Saved historical service fee is not rewritten. Retained component allocation
+continues existing reporting semantics; an optional paid-gratuity field prevents
+unpaid remaining gratuity being labelled collected on Table Plans/Function Briefs.
+Legacy allocations fall back to prior reporting. Final payment status/metadata
+reflect balance; active payment links revoked only on changed obligation, reusing
+the established payment-link integrity behaviour. No normal-screen extra requests.
+
+All existing Buyout/contractual, previous-allocation, mixed-zone, priced-add-on,
+refund and malformed-financial guards remain. BUG37's audited Corporate component
+confirmation stays inside the original flow; no new controls. BUG38 ticket hook,
+full-payment guard, ticket identities and seating/amendment delegates untouched.
+
+Verification:90 targeted tests passed (42 policy/partial/server/BUG38 plus48
+component/financial/reporting/added-guest checks), TypeScript and changed-file
+ESLint passed.17 temporary SQL scenarios cover Standard/Corporate x unpaid/
+deposit/partial/full x before/after cutoff, plus reported booking values. Actual
+installed native/Corporate delegates executed against session-temporary tables;
+permission/version/lock/tampered preview/refund/inconsistent balance guards,
+atomic failure, successful reductions, replay and stale-link invalidation checked.
+Table-fit/capacity helpers isolated as in prior tests; no actual admission, payment,
+seating change or authenticated customer-booking amendment is claimed.
+
+Migration20261126110000 patches two existing functions with verified installed
+hash checks. No schema columns/tables, grants, historical rows or unrelated ledger
+repair. Originals and private rollback/test evidence: local-evidence/bug39-*.
+Known November12 migration-ledger discrepancy remains isolated; never db push.
+Remote Main/live before release65a5d15 /dpl_9kJxC18dVWEejT7tCZ1R1NzmjvEn READY.
+Pending documentation2e46ffc and b7424f1 explicitly included in this release.

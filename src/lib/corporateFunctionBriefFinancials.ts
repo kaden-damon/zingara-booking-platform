@@ -108,7 +108,7 @@ function parseMetadata(notes: string | null | undefined) {
       addons?: FinancialAddon[];
       commercialModel?: string;
       gratuityPolicy?: GratuityPolicy;
-      valueAllocation?: { ticketAmount: number; ticketGratuityAmount: number; barTabAmount: number };
+      valueAllocation?: { ticketAmount: number; ticketGratuityAmount: number; ticketGratuityPaidAmount?: number; barTabAmount: number };
     pricingProvenance?: { bookingFeeAmount?: number };
     };
   } catch {
@@ -170,7 +170,7 @@ export function resolveCorporateFunctionBriefFinancials(
       barGratuityPaid: money(input.evidence?.bar_gratuity_amount),
       barTabAmount: allocation.barTabAmount, bookingFeeAmount: 0,
       fullPaymentAmount: money(input.amountPaid),
-      ticketGratuityPaid: allocation.ticketGratuityAmount, ticketValue: allocation.ticketAmount,
+      ticketGratuityPaid: allocation.ticketGratuityPaidAmount ?? allocation.ticketGratuityAmount, ticketValue: allocation.ticketAmount,
       reductionSummary: reductionAllocationSummary(input.notes) || "Existing retained-value allocation shown. Original receipts and historical gratuity evidence remain unchanged.",
     };
   }

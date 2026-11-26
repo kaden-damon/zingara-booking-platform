@@ -1,3 +1,35 @@
+# BUG-000039: Ordinary Outstanding-Balance Guest Reductions
+
+STATUS: VERIFIED LOCALLY; PRODUCTION RELEASE IN PROGRESS
+
+DATE: 26 NOVEMBER 2026
+
+- Read original BUG39 and Guest Count.JPG: ZNG-AMP82L15->14 guests. Saved
+  R21094 total/R8250 paid/R12844 outstanding/service feeR2344.
+- Root cause: cancellation basis blocks non-fully-paid bookings except exact
+  native R550 deposits with zero service fee/add-ons. Ordinary balances wrongly
+  require Accounts. Existing modal/API/two SQL policy functions/atomic delegates
+  reused; no new control/endpoint/schema/permission or Frontend2.0 changes.
+- Restore valid unpaid/partial balances; release eligible unpaid obligations
+  first, never invent paid refunds/bar credit/gratuity. Preserve existing exact
+  deposit treatment,5/7-day cutoffs, forfeitures, paid Corporate gratuity rules,
+  genuine exceptional-basis guards and historical receipts. Sync status/metadata
+  and revoke stale links when total changes. Table Plan/Function Brief retain
+  obligations separately from paid gratuity; old allocations retain fallback.
+- Before-cutoff fixture:14 guests/R19688.40 total/R8250 paid/R11438.40 balance,
+  no Accounts/refund/bar allocation. Actual booking not amended.
+-90 focused tests pass including BUG37/38 and reports; TypeScript/lint pass.
+ 17 temporary SQL scenarios execute actual native/Corporate delegates. Permissions,
+  revision, lock, preview, refund/balance guards, replay and stale links verified.
+  Table-fit/capacity helpers isolated; no real booking/payment/ticket/seating QA.
+- Migration20261126110000 fail-closed patches only existing basis/transaction;
+  preserve November12 ledger discrepancy, no db push. Originals/screenshot/SQL
+  private in local-evidence/bug39-*. Include pending docs2e46ffc/b7424f1.
+- Await READY/installed verification before completion. Full continuation:
+  archive/CANCELLATION_POLICY_WORKFLOW_UPDATE_2026-11-23.md, BUG39 section.
+
+---
+
 # BUG-000038: Full-Payment Guest Increase
 
 STATUS: RELEASED / READY; INSTALLED FUNCTIONAL CORRECTION VERIFIED

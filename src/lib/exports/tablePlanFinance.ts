@@ -33,6 +33,7 @@ export type TablePlanValueAllocation = {
   paymentMethod: "card" | "eft" | "unknown";
   ticketAmount: number;
   ticketGratuityAmount: number;
+  ticketGratuityPaidAmount?: number;
 };
 
 export type TablePlanFinancialBreakdown = {
@@ -302,7 +303,7 @@ export function calculateTablePlanFinancialBreakdown(
         : 0,
     ticketObligation: 0,
     ticketGratuityAmount: valueAllocation
-      ? toMoney(valueAllocation.ticketGratuityAmount)
+      ? toMoney(valueAllocation.ticketGratuityPaidAmount ?? valueAllocation.ticketGratuityAmount)
       : toMoney(legacyEvidence?.ticket_gratuity_amount),
     totalPaid: isStandardComplimentary ? 0 : authoritativePaid,
     toPay: 0,

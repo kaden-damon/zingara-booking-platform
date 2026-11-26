@@ -68,12 +68,16 @@ export function previewGuestReduction(
     totalAmount: released / 100,
   });
   const forfeited = cents(policy.forfeitedAmount);
-  const releasedPaid = basis.depositOnly ? 55000 * removed : released;
-  const releasedUnpaid = released - releasedPaid;
+  const outstanding = Math.max(0, cents(basis.totalAmount) - cents(basis.amountPaid ?? basis.totalAmount));
+  // Release outstanding obligations first; a balance is not a paid refund/credit.
+  const releasedUnpaid = basis.depositOnly ? released - 55000 * removed : Math.min(outstanding, released - forfeited);
+  const releasedPaid = released - releasedUnpaid;
+  const unpaidGratuity = basis.depositOnly ? 0 : Math.min(gratuityReview, Math.max(0, outstanding - releasedUnpaid));
+  const paidGratuity = gratuityReview - unpaidGratuity;
   const eligible = Math.max(0, releasedPaid - forfeited);
-  const gratuityForfeited = basis.bookingKind === "corporate" && !policy.fullRefundWindow ? gratuityReview : 0;
-  const gratuityRefundEligible = basis.bookingKind === "corporate" && policy.fullRefundWindow ? gratuityReview : 0;
-  const unresolvedGratuity = gratuityReview - gratuityForfeited - gratuityRefundEligible;
+  const gratuityForfeited = basis.bookingKind === "corporate" && !policy.fullRefundWindow ? paidGratuity : 0;
+  const gratuityRefundEligible = basis.bookingKind === "corporate" && policy.fullRefundWindow ? paidGratuity : 0;
+  const unresolvedGratuity = paidGratuity - gratuityForfeited - gratuityRefundEligible;
   const barCredit = disposition === "bar-credit" ? eligible : 0;
   return {
     ...(basis.confirmedComponents ? { confirmedComponents: basis.confirmedComponents } : {}),
@@ -83,10 +87,11 @@ export function previewGuestReduction(
     fullRefundWindow: policy.fullRefundWindow,
     disposition,
     ticketAmount: (cents(basis.ticketAmount) - released) / 100,
-    ticketPaidAmount: basis.depositOnly ? 550 * newGuestCount : (cents(basis.ticketAmount) - released) / 100,
+    ticketPaidAmount: basis.depositOnly ? 550 * newGuestCount : Math.max(0, cents(basis.ticketAmount) - released - Math.max(0, outstanding - releasedUnpaid - unpaidGratuity)) / 100,
     releasedTicketValue: released / 100,
     releasedUnpaidAmount: releasedUnpaid / 100,
     ticketGratuityAmount: remainingGratuity / 100,
+    ticketGratuityPaidAmount: Math.max(0, remainingGratuity - Math.max(0, outstanding - releasedUnpaid - unpaidGratuity - cents(basis.ticketAmount) + released)) / 100,
     gratuityReviewAmount: unresolvedGratuity / 100,
     gratuityForfeitedAmount: gratuityForfeited / 100,
     gratuityRefundEligibleAmount: gratuityRefundEligible / 100,
@@ -97,8 +102,8 @@ export function previewGuestReduction(
     barCreditAmount: barCredit / 100,
     barTabAmount: (cents(basis.barTabAmount) + barCredit) / 100,
     otherAmount: basis.otherAmount,
-    totalRetainedValue: (cents(basis.totalAmount) - releasedUnpaid) / 100,
-    newOutstanding: Math.max(0, (cents(basis.totalAmount) - releasedUnpaid - cents(basis.amountPaid ?? basis.totalAmount)) / 100),
+    totalRetainedValue: (cents(basis.totalAmount) - releasedUnpaid - unpaidGratuity) / 100,
+    newOutstanding: Math.max(0, (outstanding - releasedUnpaid - unpaidGratuity) / 100),
     manualResolutionRequired: eligible > barCredit || unresolvedGratuity > 0 || gratuityRefundEligible > 0,
   };
 }

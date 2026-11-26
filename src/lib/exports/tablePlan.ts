@@ -951,6 +951,7 @@ function getBookingPaymentMetadata(booking: TablePlanBooking): {
         ? {
             policyApplied: allocation.policyApplied === true,
             ticketPaidAmount: allocation.ticketPaidAmount,
+            ticketGratuityPaidAmount: allocation.ticketGratuityPaidAmount,
             barTabAmount: Number(allocation.barTabAmount),
             paymentMethod: allocation.paymentMethod,
             ticketAmount: Number(allocation.ticketAmount),
