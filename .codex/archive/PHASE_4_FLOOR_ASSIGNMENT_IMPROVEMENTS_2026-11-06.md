@@ -309,3 +309,75 @@ HTTP200 and protected unauthenticated writes401. No business-data mutations.
 Evidence: local-evidence/seating-stabilisation-production.json. Final records-only
 commit retains this exact application; no outstanding seating regression found
 within checked scope. Pre-existing legacy inventory review remains separate.
+
+## Temporary Table Permission Restoration — 26 November 2026
+
+Status: verified; authorised Production release in progress. Existing task only.
+
+Confirmed cause:1ad9b4e extended the permanent-seat named-editor gate into manual
+temporary create/capacity/status edits and reviewed temporary-capacity plans.
+Before that change, those operations used existing table-management permissions.
+Client create handler/button/temporary seats and reviewed-plan button became
+disabled for other otherwise authorised table managers; API also rejected them.
+Fresh read-only verification confirmed Kaden/Fatima active profile IDs still match
+the allowlist. Not another staff/auth identity mismatch; no new issue report with
+this specific symptom found in the bounded recent issue check.
+
+User explicitly approved "Restore original table-management access", then twice
+requested resume without repeating the investigation or further approvals. This
+supersedes ONLY the temporary-capacity named-editor restriction described in the
+24November follow-up above. Permanent table-seat/capacity controls and protected
+merged-table capacity edits retain existing Kaden/Fatima restrictions. Roles and
+stored permissions are unchanged, not redefined or widened to new staff groups.
+
+Smallest correction:
+- Admin createTable guard/button and temporary seat input reuse tables:manage.
+  Non-temporary seat controls retain canEditFloorCapacity. Existing reviewed
+  temporary-plan creation no longer uses the permanent-seat allowlist.
+- show-tables POST still requires active staff, tables:manage and permitted venue;
+  only true temporary operational tables are exempted from the named capacity gate.
+  Physical set-capacity and other protected capacity mutations remain restricted.
+- floor-capacity-plan POST reuses its existing bookings:manage AND tables:manage
+  authorizer, operational show status, snapshot checks and bounded atomic creation.
+  Initial plans that configure permanent capacity remain restricted in floor-plan.
+- No new controls, APIs, dependencies, queries, database migration, physical-seat
+  changes, booking assignment changes, permission rows or public capacity changes.
+  Permanent GC120/MR125/PB138/RB32=415, PB6-8, merge/manual seating/no automatic
+  splitting and existing assigned-booking safeguards remain unchanged.
+
+Removal uses the EXISTING Blocked status after releasing any assignment; it does
+not invent a delete workflow. Assigned tables must stay reserved. Temporary rows
+and audit history remain intact; release puts booking back in Assignment Queue.
+
+Verification:
+-80 focused tests passed:31 Floor controls/plans/allocator/table assignment/merge/
+  temporary-capacity checks plus49 single-table options, merged assignment and
+  BUG37/38/39/balance-allocation regressions. TypeScript and changed server/test
+  ESLint passed; pre-existing whole-Admin lint debt not represented as resolved.
+- Both venues PASSED authenticated lifecycle fixtures using actual serverAdmin
+  session/undertaking/role logic, actual show-tables and floor-capacity-plan GET/POST
+  handlers and unchanged installed SQL assignment/release/table-capacity guards.
+  Create8 seats -> edit/rename10 seats/custom price -> reload actual GET -> assign6
+  -> reject blocking assigned table -> reject shrinking to5 -> release -> block
+  -> reload confirms removed from available choices while row retained.
+- Actual deferred assignment checks forced AFTER the atomic operation, matching
+  Production transaction boundaries. Invalid shrink rejected by original
+  TABLE_OCCUPANCY_OUT_OF_RANGE guard; no partial persisted fixture changes. Existing
+  handler reports this database rejection as500; error mapping was not changed in
+  this surgical permission fix. Assigned block409, wrong venue/role403, no session401.
+- Receipts and QR identities unchanged across both fixture workflows. UI flags
+  covered by source/handler regression tests; no new layout/styling introduced.
+- Fixture authority is isolated/local, not real staff credentials. Actual SQL
+  functions execute against pg_temp copies with ROLLBACK; local state snapshots
+  persist between fixture requests for reopen verification. No real Production
+  table, booking, payment, ticket or communication mutation. No authenticated
+  Production browser tab was available; genuine staff live actions and physical
+  iPhone checks not claimed. Reviewed bulk-plan creation gate is source/regression
+  verified; full bulk-plan creation not repeated against live shows.
+- Private evidence: local-evidence/temporary-table-original-functions.json,
+  temporary-table-assignment-assert.json, temporary-table-workflow.cjs and
+  temporary-table-workflow-results.json. Existing checkpoints remain untouched.
+
+Baseline before release: Main6203a65d5adfb8c17ef6c93bad7fb14974770bbc,
+dpl_A2LFVitMPTwUiHvNAe28srNAyf2A READY. Pending documentationc576a1d is included
+in the authorised release. No migrations/ledger repair or Frontend2.0 changes.

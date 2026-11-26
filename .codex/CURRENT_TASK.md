@@ -1,3 +1,39 @@
+# Temporary Table Management Permission Restoration
+
+STATUS: VERIFIED; AUTHORISED PRODUCTION RELEASE IN PROGRESS
+
+DATE: 26 NOVEMBER 2026
+
+- Root cause already established before interruption:1ad9b4e applied the named
+  Kaden/Fatima permanent-capacity restriction to temporary creation/status/capacity
+  and reviewed temporary plans, unlike the original tables:manage workflow.
+  Verified Production named identities correct; not the earlier identity mismatch.
+- User expressly approved restoring original temporary-table management access
+  and retaining Kaden/Fatima permanent controls, then authorised resume/release
+  without further approvals. No investigation restarted or work discarded.
+- Reuse Admin createTable/form/temporary seat input and existing show-tables API.
+  Temporary create/update/block require existing tables:manage and venue scope;
+  reviewed plans retain existing bookings:manage AND tables:manage. Permanent
+  set-capacity, protected merged-capacity edits and initial permanent configuration
+  retain named editor restrictions. No new permissions, workflow or database change.
+- Removal means existing Blocked status after releasing any assigned booking;
+  no hard-delete feature introduced. Assigned tables cannot be blocked; actual
+  deferred assignment guard prevents capacity below assigned guests. Original
+  assignment/release functions, merge safeguards, public415 and no split unchanged.
+-80 targeted tests passed, TypeScript and targeted server/test lint passed.
+  Authenticated fixture lifecycles Cape Town and Johannesburg both passed.
+  Actual serverAdmin role/undertaking checks and actual POST/GET handlers;
+  isolated signed authority and cloned pg_temp assignment/release/table guards,
+  rollback on each SQL round trip with local fixture state retained for reopen.
+  No real table/booking/payment/customer changes or notifications. No available
+  authenticated browser tab; no real Production staff action claimed.
+- Prior live/Main6203a65 /dpl_A2LFVitMPTwUiHvNAe28srNAyf2A READY. Include pending
+  c576a1d documentation in authorised release. Private evidence/rollback unchanged:
+  local-evidence/temporary-table-*. Frontend2.0 untouched.
+- Detailed continuation: archive/PHASE_4_FLOOR_ASSIGNMENT_IMPROVEMENTS_2026-11-06.md.
+
+---
+
 # Guest Reduction: Allocate Towards Outstanding Balance
 
 STATUS: RELEASED / READY; INSTALLED AUTHENTICATED FIXTURE WORKFLOW VERIFIED

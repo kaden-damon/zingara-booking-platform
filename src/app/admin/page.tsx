@@ -12981,7 +12981,7 @@ export default function AdminDashboardPage({
     const tableNumber = newTable.tableNumber.trim();
 
     if (
-      !canEditFloorCapacity ||
+      !canManageTables ||
       !selectedShowId ||
       !tableNumber ||
       newTable.seatCapacity < 1 ||
@@ -36989,7 +36989,7 @@ export default function AdminDashboardPage({
                           <button
                             type="button"
                             onClick={() => void createReviewedFloorCapacityPlan(zonePlan.zoneId)}
-                            disabled={!canEditFloorCapacity || Boolean(floorCapacityCreateAction?.status === "creating")}
+                            disabled={!canManageTables || Boolean(floorCapacityCreateAction?.status === "creating")}
                             className="min-h-11 shrink-0 rounded-xl bg-[#D8C36A] px-4 py-2 text-xs font-semibold uppercase tracking-[0.06em] text-black transition hover:bg-[#F2D66C] disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {isCreating ? "CREATING..." : floorCapacityCreateAction?.zoneId === zonePlan.zoneId && floorCapacityCreateAction.status === "created" ? "CREATED ✓" : "REVIEW & CREATE"}
@@ -37489,7 +37489,7 @@ export default function AdminDashboardPage({
                         type="button"
                         onClick={() => createTable(zone.id)}
                         disabled={Boolean(
-                          !canEditFloorCapacity || operationalTableAction ||
+                          !canManageTables || operationalTableAction ||
                             completedOperationalTableAction === `create-${zone.id}`,
                         )}
                         className="rounded-full bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
@@ -37780,7 +37780,7 @@ export default function AdminDashboardPage({
                                 type="number"
                                 min={1}
                                 value={table.seatCapacity}
-                                disabled={!canEditFloorCapacity}
+                                disabled={!canManageTables || (!isTemporaryOperationalTable(table) && !canEditFloorCapacity)}
                                 onChange={(event) =>
                                   updateTableShowOverride(table.id, {
                                     seatCapacity: Number(event.target.value),

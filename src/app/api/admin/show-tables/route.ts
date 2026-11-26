@@ -288,8 +288,9 @@ export async function POST(request: Request) {
 
     const zoneTables = await loadZoneTables(auth.serviceClient, show.id, zoneId);
     const currentTable = zoneTables.find((row) => row.id === body.tableId);
-    const editsCapacity = body.action === "set-capacity" || body.action === "create" ||
+    const editsCapacity = body.action === "set-capacity" ||
       (body.action === "update" && currentTable && !currentTable.is_physical &&
+        !isTemporaryOperationalTable(currentTable) &&
         (Math.trunc(Number(body.capacity) || 0) !== currentTable.capacity ||
           (body.status !== undefined && body.status !== currentTable.status)));
     if (editsCapacity && !canEditSeatingBookingLimits(auth.staffProfile)) {

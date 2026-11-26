@@ -47,7 +47,7 @@ test("retired zone-wide saves reject all staff without accessing settings or wri
   assert.match(source,/settings\.bookingLimits = previousSettings\?\.bookingLimits/);
 });
 
-function tableFixture(id: string, venue="cape-town", temporary=false, assignedGuests=0) {
+function tableFixture(id: string, venue="cape-town", temporary=false, assignedGuests=0, merged=false) {
   const writes: Record<string,unknown>[]=[];
   const audits: unknown[]=[];
   const table={id:"table",table_code:temporary?"TEMP-1":"1",section:"royal-booths",capacity:6,is_physical:!temporary,is_override:temporary,capacity_configured:true,
@@ -55,6 +55,8 @@ function tableFixture(id: string, venue="cape-town", temporary=false, assignedGu
   const client={from:(relation:string)=>{
     let update:Record<string,unknown>|null=null;
     const query={select:()=>query,eq:()=>query,update:(value:Record<string,unknown>)=>{update=value;return query;},
+      insert:(value:Record<string,unknown>)=>{update=value;return query;},
+      single:async()=>{if(update)writes.push(update);return {data:{...table,...update},error:null};},
       maybeSingle:async()=>{
         if(relation==="bookings")return {data:{guest_count:assignedGuests},error:null};
         if(update)writes.push(update);
@@ -65,10 +67,10 @@ function tableFixture(id: string, venue="cape-town", temporary=false, assignedGu
     requireActiveStaff:async()=>({error:null,staffProfile:{id,active:true,venue_scope:["all"]},user:{id:"auth-identity"},serviceClient:client}),
     getStaffRolePermissions:()=>["tables:manage"],isValidSeatingZoneId,resolveShow:async()=>({id:"show",venue}),canAccessShow:()=>true,
     loadZoneTables:async()=>[table],canEditSeatingBookingLimits,floorCapacityAccessMessage,getPhysicalTableDefinition,
-    tryRecordAuditEvent:async(...args:unknown[])=>{audits.push(args);},isTemporaryOperationalTable:()=>temporary,
+    tryRecordAuditEvent:async(...args:unknown[])=>{audits.push(args);},isTemporaryOperationalTable:()=>temporary&&!merged,
     normalizeTemporaryTableCustomPrice:()=>null,temporaryTableCodePattern:/^TEMP-1$/,hasShowTableCodeConflict:async()=>false,
   });
-  return {writes,audits,post:async(action:string,capacity=6,status=table.status)=>await post(new Request("http://local/api/admin/show-tables",{method:"POST",body:JSON.stringify({action,showReference:"show",zoneId:"royal-booths",tableId:"table",capacity,status})})) as Response};
+  return {writes,audits,post:async(action:string,capacity=6,status=table.status)=>await post(new Request("http://local/api/admin/show-tables",{method:"POST",body:JSON.stringify({action,showReference:"show",zoneId:"royal-booths",tableId:"table",tableCode:"TEMP-1",capacity,status})})) as Response};
 }
 
 test("restored physical-seat POST saves normally for both authorised staff at both venues",async()=>{
@@ -78,12 +80,15 @@ test("restored physical-seat POST saves normally for both authorised staff at bo
   }
 });
 
-test("unauthorised capacity writes fail but unchanged-capacity temporary notes still work",async()=>{
-  for(const action of ["set-capacity","create"]) {
-    const fixture=tableFixture("other-staff");assert.equal((await fixture.post(action)).status,403);assert.equal(fixture.writes.length,0);
-  }
-  for(const [capacity,status] of [[7,"available"],[6,"disabled"]] as const) {
-    const fixture=tableFixture("other-staff","cape-town",true);assert.equal((await fixture.post("update",capacity,status)).status,403);assert.equal(fixture.writes.length,0);
+test("table managers regain temporary create/edit/block at both venues, not permanent or merged capacity",async()=>{
+  const permanent=tableFixture("other-staff");assert.equal((await permanent.post("set-capacity")).status,403);assert.equal(permanent.writes.length,0);
+  for(const venue of ["cape-town","johannesburg"]) {
+    const created=tableFixture("other-staff",venue,true);assert.equal((await created.post("create")).status,200);assert.equal(created.writes.length,1);
+    for(const [capacity,status] of [[7,"available"],[6,"disabled"]] as const) {
+      const fixture=tableFixture("other-staff",venue,true);assert.equal((await fixture.post("update",capacity,status)).status,200);assert.equal(fixture.writes.length,1);
+    }
+    const merged=tableFixture("other-staff",venue,true,0,true);assert.equal((await merged.post("update",7)).status,403);assert.equal(merged.writes.length,0);
+    const assigned=tableFixture("other-staff",venue,true,5);assert.equal((await assigned.post("update",6,"disabled")).status,409);assert.equal(assigned.writes.length,0);
   }
   const fixture=tableFixture("other-staff","cape-town",true);
   assert.equal((await fixture.post("update")).status,200);assert.equal(fixture.writes.length,1);
@@ -101,5 +106,9 @@ test("Floor retains table controls without the zone-wide editor; capacity permis
   assert.match(page,/Save table seats/);
   assert.match(page,/\{table\.physicalTable && physicalDefinition \? \(/);
   assert.doesNotMatch(page,/\{boothBookingLimit \? \(\s*<p/);
-  for(const path of ["src/app/api/admin/floor-plan/route.ts","src/app/api/admin/floor-capacity-plan/route.ts"])assert.match(readFileSync(path,"utf8"),/!canEditSeatingBookingLimits\(auth\.staffProfile\)/);
+  assert.match(readFileSync("src/app/api/admin/floor-plan/route.ts","utf8"),/!canEditSeatingBookingLimits\(auth\.staffProfile\)/);
+  const plan=readFileSync("src/app/api/admin/floor-capacity-plan/route.ts","utf8");
+  assert.doesNotMatch(plan,/canEditSeatingBookingLimits/);
+  assert.match(plan,/permissions\.includes\("tables:manage"\)/);
+  assert.match(page,/disabled=\{!canManageTables \|\| \(!isTemporaryOperationalTable\(table\) && !canEditFloorCapacity\)\}/);
 });
