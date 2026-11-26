@@ -72,7 +72,7 @@ export async function resolveStaffIssueAction(client: SupabaseClient, resolution
     url.searchParams.set("booking", context.bookingReference);
   } else {
     let path: URL;
-    try { path = new URL(context?.adminPath ?? "", origin); } catch { return null; }
+    try { path = new URL(context?.adminPath || (showId ? "/admin" : ""), origin); } catch { return null; }
     if (path.origin !== origin || path.pathname !== "/admin") return null;
     const requested = path.searchParams.get("section") ?? (showId
       ? permissions.includes("bookings:manage") ? "bookings" : "floor"

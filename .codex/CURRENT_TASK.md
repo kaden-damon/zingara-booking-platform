@@ -1,6 +1,6 @@
 # Staff Issue Resolution Notifications And Elapsed Time
 
-STATUS: IMPLEMENTED LOCALLY; TARGETED WORKFLOW / ROLLBACK CHECKS PASS; RELEASE PENDING
+STATUS: RELEASED / READY; LIVE ADMIN SAVE AND ONE REPORTER EMAIL VERIFIED
 
 DATE: 26 NOVEMBER 2026
 
@@ -25,6 +25,20 @@ DATE: 26 NOVEMBER 2026
   unchanged BookingReconciliationModal; not altered or hidden by this task.
 - Detailed findings/release evidence: archive/STAFF_ISSUE_RESOLUTION_NOTIFICATIONS_2026-11-26.md.
   Preserve pending4b4271b/5bebb48/da1ecb4, private local-evidence and Frontend2.
+- Initial released commit dfca30e33f21906e57c550c4e75d1c369ff44c63; Production
+  dpl_HYLSaftCG6QX3jBr5xZVHCCohprX READY, alias book.zingara.co.za. Migration
+  20261126170000 applied; zero historical events queued. Clean budget raw1312092,
+  gzip319009,largest169665 under unchanged1320000/320000/170000 limits.
+- Actual signed-in Kaden Admin fixture BUG-EMAIL-CHECK-20261126 saved with
+  verification and two simple sentences. Genuine report14:45:16 SAST -> verified
+  completion14:52:06,410.917777sec; Admin and email both show Resolved in6minutes.
+  Communication0ddf1b18-cdce-40ea-ba94-b93dbe70750d sent, delivery
+  d5f26d1d-fd3c-41f8-ad9e-ffb82b61a6a6 sent/one attempt/no error. Only one total
+  resolution delivery exists. Outlook independently confirms receipt14:52:26 at
+  kaden@kaden.co.za, no CC; correct brand, reference, time, notes, Customers CTA.
+- Final server-only context edge: show ID without page URL now still opens exact
+  permitted performance. Same31 targeted tests pass including this case; final
+  release reference to follow. No second test email or real historical notification.
 
 ---
 

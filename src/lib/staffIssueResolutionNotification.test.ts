@@ -215,6 +215,7 @@ test("floor and customer actions reuse supported sections without stale performa
   const floor = { ...reporter, roles: { name: "Floor Manager", role_permissions: [{ permissions: { key: "tables:manage" } }] } };
   const action = await resolveStaffIssueAction(database as never, { ...resolution, technicalContext: { adminPath: "/admin?section=floor&show=show" } }, floor as never);
   assert.equal(action?.url, "https://book.zingara.co.za/admin?show=show&section=floor");
+  assert.equal((await resolveStaffIssueAction(database as never, { ...resolution, technicalContext: { showId: "show" } }, floor as never))?.url, "https://book.zingara.co.za/admin?show=show&section=floor");
   const customerStaff = { ...reporter, roles: { name: "Venue Manager", role_permissions: [{ permissions: { key: "crm:read" } }] } };
   assert.equal((await resolveStaffIssueAction(database as never, { ...resolution, technicalContext: { adminPath: "/admin?section=customers" } }, customerStaff as never))?.label, "Open customers");
 });

@@ -1,6 +1,6 @@
 # Staff Issue Resolution Notifications And Elapsed Time
 
-Date: 26 November 2026. Status: release pending.
+Date: 26 November 2026. Status: released / READY; authenticated completion and inbox receipt verified.
 
 ## Existing Workflow And Actual Gap
 
@@ -72,6 +72,43 @@ Date: 26 November 2026. Status: release pending.
 
 ## Release And Live Verification
 
-Pending: exact commit, READY/alias, clean-build performance budgets, narrow migration
-application, one safe fixture email to kaden@kaden.co.za and persisted delivery
-readback. Do not notify historical reporters or trigger unrelated scheduled mail.
+- Initial application commit `dfca30e33f21906e57c550c4e75d1c369ff44c63`, pushed Main
+  with prior approved pending documentation commits. Production
+  `dpl_HYLSaftCG6QX3jBr5xZVHCCohprX` READY, actual alias book.zingara.co.za verified.
+  Clean build compiles; budgets raw1,312,092/1,320,000;gzip319,009/320,000;
+  largestgzip169,665/170,000. No budget increase. Unauthenticated live PATCH401.
+- Migration20261126170000 applied transactionally with bounded lock/statement
+  timeouts and ledger evidence; trigger present, historical queue count0. No
+  booking/payment/customer row or historical issue completion changed.
+- One explicitly labelled authorised fixture, `BUG-EMAIL-CHECK-20261126`,
+  issueID`f1220807-1a8c-4e5d-8110-44a3b64c87db`, original reporter Kaden. Direct
+  fixture insert avoids the separate new-report management alert. Genuine created
+  26Nov14:45:16.007969 SAST, live verified completion14:52:06.925746 SAST, elapsed
+  410.917777seconds. Native Chrome existing authenticated Kaden session: opened
+  exact issue; entered two sentences; selected Completed/Fixed; checked Fix
+  verified; saved successfully. Live list/detail show Resolved in6minutes.
+- Exact sent notes: "This issue has been resolved. Please reopen Customers and
+  continue." Branded HTML/gold button verified by actual renderer/fixture tests.
+  Live destination https://book.zingara.co.za/admin?section=customers; never bug URL.
+- Production Communications`0ddf1b18-cdce-40ea-ba94-b93dbe70750d` sent14:52:15.656,
+  delivery`d5f26d1d-fd3c-41f8-ad9e-ffb82b61a6a6` sent14:52:15.770, one attempt,
+  last_errornull. Total resolution deliveries1, all historical reporters untouched.
+- Independent Outlook receipt confirmed26Nov14:52:26 SAST: exact subject
+  `BUG-EMAIL-CHECK-20261126 resolved | Zingara`, from bookings@zingara.co.za,
+  TO kaden@kaden.co.za, no CC. Received content confirms Zingara branding, reference,
+  Resolved in6minutes, two sentences and Customers link. Connector normalises HTML
+  to Markdown; no claim of raw received CSS inspection. One email only, no resend.
+- Final targeted server-only correction handles a recorded show ID with no page
+  URL, retaining exact venue/show and reporter permissions. Same31 tests pass with
+  added case; final deployment evidence follows. No additional migration/email.
+
+## Remaining Boundaries
+
+- Unsupported/insufficient context intentionally omits CTA; do not guess identities
+  or destinations. SMTP uncertainty/crash after claim needs manual reconciliation,
+  not blind retry. Historical elapsed times use existing recorded timestamps,
+  without inventing verification timestamps or sending historical notifications.
+- Desktop live authenticated workflow verified; no physical iPhone verification
+  claimed. Existing unrelated lint/wording-test failures remain as described above.
+- Staff notification preference remains authoritative; suppressed mail is not
+  falsely reported delivered. Future Codex tasks must verify real reporter outcome.
