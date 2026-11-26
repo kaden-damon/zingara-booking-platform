@@ -1,8 +1,36 @@
 # Urgent Box Office Operational Authority
 
-STATUS: OPERATIONAL FIXTURES VERIFIED; SCOPED PRODUCTION RELEASE IN PROGRESS
+STATUS: RELEASED / READY; OUTSTANDING BUYOUT AND MULTI-ZONE WORKFLOWS VERIFIED
 
 DATE: 26 NOVEMBER 2026
+
+- Final application commit b996512df1d0a337205039c3187cb53ac7eef5eb pushed Main,
+  including prior pending778d7b2 documentation. Production deployment
+  dpl_9LpLp1kBUnLbSZUQNSnQ9Zu7dba9 READY; actual book.zingara.co.za alias and exact
+  Main commit verified. Vercel supported Turbopack build compiled successfully and
+  ran the UNCHANGED performance gate: raw1313666/1320000, gzip319435/320000,
+  largest169907/170000. No budget/configuration bypass or increase.
+- Live /book and /admin200; unauthenticated reconciliation/Floor APIs401. Actual
+  Production PostgREST three-argument basis RPC200, operationalAuthority true,
+  blockedReason null for Rasmus. Real booking remains4,paid0,total/outstanding3843.33;
+  staff can make the agreed5760 correction through the existing financial editor.
+  No real booking/payment/ticket/seating mutation or communication during QA.
+- Original60 tests reused, NOT rerun. Five outstanding-focused tests, four actual
+  authenticated UI/API/SQL Buyout/Corporate venue workflows, and SQL money/capacity/
+  identity/rollback rejection checks passed. Current types/lint/diff clean.
+- Eight existing active named accounts/all venues verified. Nomza/Tao have no active
+  matching accounts and require future verified provisioning; none was invented.
+  AGENTS direct-save doctrine and same Timeline audit mechanism shipped. Refund,
+  restricted accounting, permanent seating and public rules remain preserved.
+- Final record nuance: initial post-migration full venue-settings fingerprint matched;
+  later overall fingerprint differed, with no recent matching settings audit event.
+  Do not attribute that difference without evidence. Targeted final checks verify
+  120/125/138/32=415,PB23 and public6-8 at BOTH venues; source/migration writes no venue
+  settings. Rasmus/receipts/tickets/seating/staff/template-body fingerprints remain
+  unchanged. Private evidence retained; no configuration overwritten or speculative fix.
+- Final evidence-only Markdown is committed locally for the next authorised release,
+  per README, avoiding a second documentation-only Production deployment. Frontend2
+  and existing checkpoints remain untouched. No further development phase created.
 
 - Current explicit authority covers ALL operational/commercial booking workflows,
   across all venues, for Fatima/Lisa/Michael/Vanessa/Sharon/Rasmus/Hannah/Nosi/Nomza/

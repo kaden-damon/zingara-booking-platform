@@ -1,6 +1,6 @@
 # Box Office Operational Authority
 
-STATUS: OPERATIONAL FIXTURES VERIFIED / RELEASE IN PROGRESS
+STATUS: RELEASED / READY; OUTSTANDING BUYOUT AND MULTI-ZONE WORKFLOWS VERIFIED
 
 ## Superseding Authority
 
@@ -189,3 +189,46 @@ pre-migration checkpoint. Private originals/rollback checkpoint and readback:
 local-evidence/operational-authority-before-release.json and
 local-evidence/operational-authority-production-readback.json. No real customer
 booking, financial, ticket, seating or communication action was performed.
+
+## Final Production Release And Evidence
+
+- Application commit b996512df1d0a337205039c3187cb53ac7eef5eb pushed to Main with
+  prior approved pending778d7b2 documentation. No unrelated files/private evidence
+  or Frontend2 changes included. Production dpl_9LpLp1kBUnLbSZUQNSnQ9Zu7dba9 READY,
+  deployment zingara-booking-platform-avlrrekdk-kaden-damons-projects.vercel.app;
+  book.zingara.co.za alias confirmed. Deployment metadata matches exact Main SHA.
+- Existing cloud Turbopack `npm run build` succeeded. Exact unchanged Admin budget:
+  raw1,313,666/1,320,000;gzip319,435/320,000;largest169,907/170,000. No local-port
+  dependency, alternate manifest acceptance, budget change or skipped checker.
+  Largest initial chunk has only93bytes headroom; future work must retain lazy
+  boundaries rather than increasing thresholds. No optimisation phase added now.
+- Live /book200,/admin200; unauthenticated reconciliation and Floor requests401.
+  Actual installed Production PostgREST overload returns200 for the authorised
+  Rasmus read-only basis: operationalAuthority true, blockedReason null, guests4,
+  paid0,total3843.33. This verifies function registration/schema-cache visibility
+  as well as the database identity decision without a consequential save.
+- Earlier60 tests were reused, not rerun. Five new focused tests and all four
+  outstanding authenticated fixture cases passed, plus the SQL rejection batch.
+  Types, changed-file lint and diff checks pass. Production writes to real bookings
+  were NOT used as QA; no claim of physical iPhone verification or live saves under
+  real staff credentials. Authenticated saves/reopens used isolated representative
+  identities and actual handlers/functions; live confirmation is read-only.
+- Real Rasmus booking/payment/ticket/table and staff-profile fingerprints remain
+  identical. Actual booking was intentionally not corrected during QA; staff can
+  now review its agreed5760 total and components in Edit Payment Details, then save
+  without a commercial acknowledgement or mandatory reason. Receipts are immutable.
+- Immediate migration readback matched the complete venue-settings fingerprint.
+  A later overall fingerprint differed; no recent matching venue-settings audit
+  event was returned, so its source is not established and must not be guessed.
+  Targeted final values remainGC120/MR125/PB138/RB32=415,PB23,public6-8 at Cape Town
+  AND Johannesburg. Neither migration nor application changes write venue settings.
+  Preserve the observed hashes/private evidence; do not overwrite settings or call
+  an unrelated/unknown difference an established regression. No current seating
+  limit failure was observed. Template body fingerprint unchanged; suffix removed.
+- Eight matching active named profiles verified with existing roles/all-venue scopes;
+  no Nomza/Tao active accounts exist. Their future provisioning remains an owner
+  action, not a fabricated permission binding. Refund/accounting and permanent
+  capacity restrictions remain intact. No customer communications sent during QA.
+- Evidence-only close-out Markdown is retained in a local commit for the next
+  authorised application release under README, avoiding a redundant auto-deployment.
+  Existing original-function/rollback checkpoints and private evidence are preserved.
