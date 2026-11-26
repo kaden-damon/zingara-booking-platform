@@ -10,6 +10,7 @@ import {
   isStaffIssueCategory,
   isStaffIssuePriority,
   isStaffIssueStatus,
+  isValidStaffIssueResolutionNotes,
   type StaffIssueCategory,
   type StaffIssuePriority,
   type StaffIssueReport,
@@ -25,6 +26,7 @@ import {
   type StaffIssueMediaType,
 } from "@/lib/staffIssueMedia";
 import { notifyKadenOfStaffIssue } from "@/lib/staffIssueNotification";
+import { runStaffIssueResolutionNotifications } from "@/lib/staffIssueResolutionNotification";
 import {
   getAdminRoleFromName,
   requireActiveStaff,
@@ -537,6 +539,7 @@ export async function PATCH(request: Request) {
       id?: unknown;
       priority?: unknown;
       resolutionNotes?: unknown;
+      resolutionVerified?: unknown;
       scheduledAt?: unknown;
       status?: unknown;
     };
@@ -592,6 +595,21 @@ export async function PATCH(request: Request) {
 
     if (body.resolutionNotes !== undefined) {
       updates.resolution_notes = normalizeOptionalText(body.resolutionNotes);
+      if (updates.resolution_notes && updates.resolution_notes !== beforeIssue.resolution_notes && !isValidStaffIssueResolutionNotes(String(updates.resolution_notes))) {
+        return Response.json({ error: "Use no more than two short, simple sentences for the reporter. Keep technical findings in internal notes." }, { status: 400 });
+      }
+    }
+
+    if (body.status === "completed" && beforeIssue.status !== "completed" && !beforeIssue.completed_at) {
+      if (body.resolutionVerified !== true) {
+        return Response.json({ error: "Verify the fix before completing this issue." }, { status: 400 });
+      }
+      if (!isValidStaffIssueResolutionNotes(String(updates.resolution_notes ?? beforeIssue.resolution_notes ?? ""))) {
+        return Response.json({ error: "Add up to two short, simple sentences for the reporter." }, { status: 400 });
+      }
+      updates.metadata = { ...beforeIssue.metadata, resolutionVerification: {
+        verified: true, staffProfileId: auth.staffProfile.id,
+      } };
     }
 
     if (body.scheduledAt !== undefined) {
@@ -606,12 +624,15 @@ export async function PATCH(request: Request) {
       .from("staff_issue_reports")
       .update(updates)
       .eq("id", id)
+      .eq("updated_at", beforeIssue.updated_at)
       .select(issueSelect)
-      .single();
+      .maybeSingle();
 
     if (error) {
       throw error;
     }
+
+    if (!data) return Response.json({ error: "This issue changed. Reopen it before saving." }, { status: 409 });
 
     const issue = toIssueReport(data as unknown as StaffIssueRow);
     const diff = diffAuditFields(
@@ -633,6 +654,12 @@ export async function PATCH(request: Request) {
       sourceArea: "System",
     });
 
+    if (issue.status === "completed" && issue.metadata.verifiedResolution) {
+      after(async () => {
+        try { await runStaffIssueResolutionNotifications(auth.serviceClient, issue.id); }
+        catch { console.error("[Zingara Issues] Resolution notification remains queued", { issueId: issue.id }); }
+      });
+    }
     return Response.json({ issue });
   } catch (error) {
     console.error("[Zingara Issues] Failed to update staff issue", error);

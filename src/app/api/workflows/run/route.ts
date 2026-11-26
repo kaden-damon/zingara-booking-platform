@@ -16,6 +16,7 @@ import { runAutomaticTableAssignmentNotifications } from "@/lib/workflows/automa
 import { runLiveXeroSyncWorker } from "@/lib/xero/liveSync";
 import { runLiveXeroReconciliation } from "@/lib/xero/liveReconciliation";
 import { runAdvertisingConversionWorker } from "@/lib/advertisingConversionOutbox";
+import { runStaffIssueResolutionNotifications } from "@/lib/staffIssueResolutionNotification";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -49,6 +50,9 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode") === "send" ? "send" : "dry-run";
+    const issueResolutions = mode === "send"
+      ? await runStaffIssueResolutionNotifications(serviceClient).catch(() => [{ status: "failed" }])
+      : [];
     const workflow = url.searchParams.get("workflow");
     const workflowKey =
       workflow === "pre_show_reminder" || workflow === "post_show_review"
@@ -151,6 +155,7 @@ export async function GET(request: Request) {
       dailyBookingReview,
       dailyWaitlistReminder,
       invoiceRequestReminder,
+      issueResolutions,
       platformFeedback,
       publicPaymentHolds,
       reviewManagement,

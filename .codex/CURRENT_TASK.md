@@ -1,3 +1,33 @@
+# Staff Issue Resolution Notifications And Elapsed Time
+
+STATUS: IMPLEMENTED LOCALLY; TARGETED WORKFLOW / ROLLBACK CHECKS PASS; RELEASE PENDING
+
+DATE: 26 NOVEMBER 2026
+
+- Current request authorises reporter resolution emails, actual elapsed time,
+  existing branded/template/Communications reuse, one Kaden-only fixture email,
+  governance update and Production release. No historical reporter notification.
+- Existing gap: issue PATCH recorded completion only; staffIssueNotification.ts
+  notified Kaden of new reports only. Reuse existing staff delivery log, personal
+  subscriptions, SMTP/branded wrapper, Communications templates and cron worker.
+- Completion requires explicit verification and max two short plain-English
+  sentences. Trigger snapshots original report time/verified completion and reporter;
+  queues one new event, no historical backfill. Admin and Codex use same PATCH.
+- Context CTA uses existing Admin deep links, current role permissions and venue
+  scope; omit irrelevant/unavailable links. No bug-report CTA. Notes edits/retries
+  cannot duplicate. Uncertain SMTP outcomes require review, not automatic resend.
+- 31 directly relevant tests pass (resolution workflow, staff email subscriptions,
+  existing issue attachments). Rollback-only migration/fixture checks pass: genuine
+  clock, permissions, immutable evidence, one claim, failed-send protection, no
+  historical backfill; all rolled back. TypeScript passes. Existing Admin lint has
+  two unrelated set-state-in-effect errors at2921/2934; other changed files clean.
+  Unrelated staffPlainLanguage historical wording assertion also fails against
+  unchanged BookingReconciliationModal; not altered or hidden by this task.
+- Detailed findings/release evidence: archive/STAFF_ISSUE_RESOLUTION_NOTIFICATIONS_2026-11-26.md.
+  Preserve pending4b4271b/5bebb48/da1ecb4, private local-evidence and Frontend2.
+
+---
+
 # AVA Events Authorised R720 Gratuity Transfer
 
 STATUS: COMPLETED IN PRODUCTION; INDEPENDENT READBACK VERIFIED

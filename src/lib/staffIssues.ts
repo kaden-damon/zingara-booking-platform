@@ -104,3 +104,20 @@ export function getStaffIssueStatusLabel(
 export function canManageStaffIssues(role: AdminRole | string | null | undefined) {
   return role === "super-admin" || role === "venue-manager";
 }
+
+export function getStaffIssueResolutionTime(createdAt: string, completedAt: string | null) {
+  if (!completedAt) return null;
+  const elapsed = new Date(completedAt).getTime() - new Date(createdAt).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return null;
+  const minutes = Math.floor(elapsed / 60_000);
+  if (!minutes) return "Resolved in less than a minute";
+  const parts = [[Math.floor(minutes / 1440), "day"], [Math.floor(minutes / 60) % 24, "hour"], [minutes % 60, "minute"]] as const;
+  return `Resolved in ${parts.filter(([count]) => count).map(([count, unit]) => `${count} ${unit}${count === 1 ? "" : "s"}`).join(" ")}`;
+}
+
+export function isValidStaffIssueResolutionNotes(value: string) {
+  const notes = value.trim();
+  return Boolean(notes) && notes.length <= 300 &&
+    notes.split(/[.!?]+(?:\s+|$)/).filter((part) => part.trim()).length <= 2 &&
+    !/https?:|\b(?:HTTP|SQL|API|RPC|commit|deployment|stack trace|root cause)\b/i.test(notes);
+}

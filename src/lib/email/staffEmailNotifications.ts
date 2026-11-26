@@ -2,6 +2,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const staffEmailNotificationRegistry = [
   {
+    description: "A confirmation when an issue you reported has been fixed and verified.",
+    key: "staff-issue-resolution",
+    label: "Issue Resolutions",
+    mode: "personal",
+    routed: false,
+  },
+  {
     description: "Your daily summary of bookings you originally created.",
     key: "daily-booking-review",
     label: "Daily Booking Review",
@@ -192,7 +199,8 @@ export async function claimStaffEmailDelivery(
       | StaffEmailRouteKey
       | "dietary-order"
       | "quote-accepted"
-      | "staff-issue-report"
+    | "staff-issue-report"
+    | "staff-issue-resolution"
       | "training-acknowledgement";
     toStaffProfileIds: string[];
   },

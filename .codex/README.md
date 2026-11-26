@@ -1,5 +1,21 @@
 # Codex Task Instructions
 
+## Reported Issue Completion
+
+After operational verification, complete reported issues through the existing
+authenticated `PATCH /api/admin/issues` management workflow. Send `id`,
+`status: "completed"`, `resolutionVerified: true` and `resolutionNotes` of at most
+TWO short, plain-English sentences confirming the fix and next action. No root
+causes or technical details in reporter notes; retain findings in task archives.
+This applies to Codex and Admin alike; do not close bugs through ad hoc SQL.
+The completion trigger records genuine completion time and queues one reporter
+notification through the existing staff email delivery log. The API dispatches
+after its response; the existing scheduled workflow recovers pending work.
+Verify Communications plus `staff_email_notification_deliveries` for the issue
+ID (`staff-issue-resolution`), including preference suppression or delivery errors.
+SMTP acceptance is not inbox confirmation. Do not blindly resend failed/uncertain
+deliveries or retrospectively notify historical reporters. Notes edits do not resend.
+
 ## Mandatory Reuse-First Doctrine
 
 AGENTS.md records the mandatory development doctrine for all future tasks,

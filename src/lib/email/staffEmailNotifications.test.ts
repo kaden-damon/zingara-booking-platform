@@ -8,6 +8,7 @@ test("personal subscriptions and management routing are separate", () => {
   assert.deepEqual(
     staffEmailNotificationRegistry.map(({ key, mode, routed }) => ({ key, mode, routed })),
     [
+      { key: "staff-issue-resolution", mode: "personal", routed: false },
       { key: "daily-booking-review", mode: "personal", routed: false },
       { key: "secret-guest-list", mode: "personal", routed: true },
       { key: "new-waitlist-enquiry", mode: "personal", routed: true },

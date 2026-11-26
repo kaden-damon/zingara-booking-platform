@@ -491,6 +491,7 @@ import {
   canManageStaffIssues,
   getStaffIssueCategoryLabel,
   getStaffIssuePriorityLabel,
+  getStaffIssueResolutionTime,
   getStaffIssueStatusLabel,
   staffIssueCategories,
   staffIssuePriorities,
@@ -1543,6 +1544,7 @@ type StaffIssueManagementForm = {
   adminNotes: string;
   priority: StaffIssuePriority;
   resolutionNotes: string;
+  resolutionVerified: boolean;
   scheduledAt: string;
   status: StaffIssueStatus;
 };
@@ -5218,6 +5220,7 @@ export default function AdminDashboardPage({
       adminNotes: "",
       priority: "normal",
       resolutionNotes: "",
+      resolutionVerified: false,
       scheduledAt: "",
       status: "logged",
     });
@@ -9952,6 +9955,7 @@ export default function AdminDashboardPage({
       adminNotes: selectedStaffIssue.adminNotes ?? "",
       priority: selectedStaffIssue.priority,
       resolutionNotes: selectedStaffIssue.resolutionNotes ?? "",
+      resolutionVerified: false,
       scheduledAt: selectedStaffIssue.scheduledAt
         ? selectedStaffIssue.scheduledAt.slice(0, 16)
         : "",
@@ -10719,6 +10723,7 @@ export default function AdminDashboardPage({
             id: selectedStaffIssueId,
             priority: staffIssueManagementForm.priority,
             resolutionNotes: staffIssueManagementForm.resolutionNotes,
+            resolutionVerified: staffIssueManagementForm.resolutionVerified,
             scheduledAt: staffIssueManagementForm.scheduledAt,
             status: staffIssueManagementForm.status,
           },
@@ -10737,7 +10742,7 @@ export default function AdminDashboardPage({
       showWorkflowToast("✓ Saved · Issue updated");
     } catch (error) {
       console.error("[Zingara admin] Failed to update issue", error);
-      setStaffIssueError("Issue could not be updated.");
+      setStaffIssueError(error instanceof Error ? error.message : "Issue could not be updated.");
       showWorkflowToast("⚠ Could not save issue");
     } finally {
       setIsStaffIssueSaving(false);
@@ -23638,6 +23643,9 @@ export default function AdminDashboardPage({
                   <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-zinc-500 sm:grid-cols-2">
                     <span>{getStaffIssueCategoryLabel(issue.category)}</span>
                     <span>{formatSouthAfricanDate(issue.createdAt)}</span>
+                    {issue.status === "completed" && (
+                      <strong className="text-[#D8C36A] sm:col-span-2">{getStaffIssueResolutionTime(issue.createdAt, issue.completedAt)}</strong>
+                    )}
                     {canManageIssueRegister && (
                       <span className="sm:col-span-2">
                         Reporter: {issue.reporterName ?? issue.reporterEmail ?? "Unknown staff"}
@@ -23679,6 +23687,9 @@ export default function AdminDashboardPage({
                   </div>
                 </div>
 
+                {selectedStaffIssue.status === "completed" && (
+                  <p className="text-lg font-medium text-[#D8C36A]">{getStaffIssueResolutionTime(selectedStaffIssue.createdAt, selectedStaffIssue.completedAt)}</p>
+                )}
                 <div className="grid grid-cols-1 gap-3 text-sm text-zinc-300 sm:grid-cols-2">
                   {[
                     ["Reporter", selectedStaffIssue.reporterName ?? selectedStaffIssue.reporterEmail ?? "Unknown staff"],
@@ -23796,6 +23807,8 @@ export default function AdminDashboardPage({
                       Resolution Notes
                       <textarea
                         rows={3}
+                        maxLength={300}
+                        placeholder="Up to two short sentences. Say it is fixed and what to do next."
                         value={staffIssueManagementForm.resolutionNotes}
                         onChange={(event) =>
                           setStaffIssueManagementForm((form) => ({
@@ -23806,6 +23819,14 @@ export default function AdminDashboardPage({
                         className="rounded-xl border border-white/10 bg-black px-4 py-3 text-sm normal-case leading-6 tracking-normal text-white"
                       />
                     </label>
+                    {staffIssueManagementForm.status === "completed" && !selectedStaffIssue.completedAt && (
+                      <label className="flex items-center gap-3 text-sm text-zinc-200">
+                        <input type="checkbox" checked={staffIssueManagementForm.resolutionVerified}
+                          onChange={(event) => setStaffIssueManagementForm((form) => ({ ...form, resolutionVerified: event.target.checked }))}
+                          className="h-5 w-5 shrink-0 appearance-none rounded-full border border-white/30 bg-black checked:border-[#D8C36A] checked:bg-[#D8C36A] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C36A]" />
+                        Fix verified. Notify the reporter.
+                      </label>
+                    )}
                     <button
                       type="button"
                       onClick={() => void saveSelectedStaffIssue()}

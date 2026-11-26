@@ -66,11 +66,15 @@ superseding baseline). Read `.codex/README.md` and `.codex/CURRENT_TASK.md` firs
     Better wording is not a fix for a blocked workflow. Do not mark unknown or
     historically unresolved cases resolved merely because code was deployed.
 15. All staff-facing bug resolution notes MUST be extremely short and simple:
-    no more than three short sentences in plain, everyday English explaining
-    what went wrong, what was fixed and any action the staff member needs to take.
-    Exclude technical terminology, test results, commit references and deployment
-    details. Keep detailed technical findings in the existing internal Markdown
-    records. This applies to every future bug resolution.
+    no more than TWO short sentences in plain, everyday English confirming the
+    fix and any next action. No technical explanations, root causes, test results,
+    commit references or deployment details. Keep those in internal Markdown.
+    After verifying a reported fix, use the same authenticated issue-completion
+    workflow as Admin (verified resolution and genuine timestamps), including for
+    Codex-driven resolutions. Verify the reporter's notification delivery or
+    recorded preference suppression in Communications and the existing staff email
+    delivery log. Never claim inbox receipt from SMTP acceptance alone. No historical
+    notification backfill or blind retry after uncertain email delivery.
 
 Frontend 2.0 / Phase 50.9 remains strictly isolated: do not modify, merge, deploy
 or connect it to live services without explicit approval. Staff two-factor
