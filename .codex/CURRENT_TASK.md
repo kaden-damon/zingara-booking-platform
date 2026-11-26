@@ -1,3 +1,33 @@
+# AVA Events Authorised R720 Gratuity Transfer
+
+STATUS: COMPLETED IN PRODUCTION; INDEPENDENT READBACK VERIFIED
+
+DATE: 26 NOVEMBER 2026
+
+- Kaden explicitly authorises ZNG-KBP646 cancelled-guest gratuity720 held for review
+  to bar spend. This supersedes the earlier720 held/resolution-pending notes below;
+  it does not change global cancellation/gratuity rules or any other booking.
+- Guarded correction of the existing retained-value allocation only: bar17760->18480,
+  refundReviewAmount720->0,gratuityRefundEligibleAmount720->0,
+  gratuityTransferred0->720,manualResolutionRequired false. Original ticket bar
+  credit5760 remains separately classified; existing show gratuity5040 and bar
+  gratuity1500 retained. New explicit authorisation appended without losing the
+  original exception/history. Allocated components sum to unchanged paid/total65340.
+- Transaction locked original booking/revision, respected active staff edit locks,
+  validated existing staff/venue financial authority and exact starting amounts;
+  no server safeguard disabled or new override/control introduced. Timeline records
+  Kaden's explicit authority and automated execution through existing financial audit.
+- Independent Production readback:bar18480,show gratuity5040,bar gratuity1500,
+  refund/forfeiture/held gratuity0; guests28,total/paid65340,outstanding0 unchanged.
+  Complete payment/refund/ticket/seating snapshots and all other booking fields
+  unchanged. No cash transaction, refund, forfeiture, invoice or communication.
+- Private before/guarded SQL/apply/readback: local-evidence/ava-gratuity-correction-*.
+  No application code/function/schema/global-rule change, deployment or Frontend2
+  modification. Markdown retained in local commit for next authorised release;
+  preserve prior pending5bebb48 and earlier records. Do not repeat this transfer.
+
+---
+
 # Authorised Meditech Booking Reconciliation
 
 STATUS: COMPLETED IN PRODUCTION; SAVED STATE, CAPACITY AND EXPORT CHECKS VERIFIED

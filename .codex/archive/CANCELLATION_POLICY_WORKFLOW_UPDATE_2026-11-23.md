@@ -5,6 +5,40 @@ Status: released to Production / READY; non-mutating live verification complete.
 
 ## Authority And Scope
 
+### 26 November AVA R720 Gratuity Correction: Completed
+
+New explicit Kaden authority supersedes the earlier R720 held-refund-review
+outcome for ZNG-KBP646 only. Transfer that exact held cancelled-guest gratuity to
+bar spend; preserve remaining show gratuity5040,bar gratuity1500 and all other
+financial records,28 guests,seating/tickets. No refund or forfeiture authorised.
+
+Fresh saved-state snapshot confirmed prior bar17760/held720,paid65340,outstanding0.
+Guarded existing-allocation component correction applied atomically with booking
+row/revision lock, active staff edit-lock check, original exact amounts and current
+staff/venue financial permission validation. Existing financial audit/Timeline
+records Kaden authority with System automated-maintenance attribution. No new UI,
+API/function or unrestricted override, and no normal server protection disabled.
+
+Final allocation:bar18480 (original12000 + ticket transfer5760 + newly authorised
+gratuity720),remaining tickets40320,show gratuity5040,bar gratuity1500. Sum65340
+matches unchanged booking total/paid. RefundReviewAmount and gratuityRefundEligible
+both0; gratuityTransferred720; manualResolutionRequired false; both ticket and
+gratuity forfeiture0. Original first exception retained; dated gratuity-transfer
+approval appended. No actual cash/refund transaction or further money collection.
+
+Independent Production readback verifies exact allocations and complete unchanged
+payment/refund/ticket/table snapshots; all booking fields other than allocation
+metadata/normal revision timestamp unchanged, including28 guests,65340 total/paid,
+zero outstanding and original seating. No invoice, communication or other booking
+changed. Private evidence local-evidence/ava-gratuity-correction-{before,apply-result,
+final}.json and guarded SQL. Actual authenticated browser click not claimed.
+
+Earlier references below to R720 still held are historical and superseded by this
+explicit approval and completed transfer. No code, migration, deployment, global
+business-rule or Frontend2 change. Final existing Markdown records committed
+locally for next authorised release per README, preserving pending5bebb48 and
+avoiding a documentation-only Production deployment.
+
 ### 26 November Authorised Meditech Reconciliation: Completed
 
 This dated follow-up supersedes the previously OPEN Meditech quote/count data
