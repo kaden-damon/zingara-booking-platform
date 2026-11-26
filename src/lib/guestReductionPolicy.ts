@@ -14,6 +14,8 @@ export type GuestReductionBasis = {
   depositOnly?: boolean;
   amountPaid: number;
   componentConfirmationRequired?: boolean;
+  preserveFinancials?: boolean;
+  componentRecoverySource?: string | null;
   confirmedComponents?: GuestReductionComponents;
   operationalAuthority?: boolean;
   operationalException?: { waivePenalty: boolean; transferGratuity: boolean };
@@ -58,7 +60,7 @@ export function previewGuestReduction(
   disposition: GuestReductionDisposition = "review-refund",
   now = new Date(),
 ) {
-  if (basis.blockedReason || !Number.isFinite(basis.amountPaid) || basis.amountPaid < 0 ||
+  if (basis.preserveFinancials || basis.blockedReason || !Number.isFinite(basis.amountPaid) || basis.amountPaid < 0 ||
     basis.amountPaid > basis.totalAmount || !Number.isInteger(newGuestCount) || newGuestCount < 1 ||
     newGuestCount >= basis.guestCount) return null;
   const removed = basis.guestCount - newGuestCount;

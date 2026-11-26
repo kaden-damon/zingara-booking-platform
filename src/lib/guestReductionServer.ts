@@ -9,7 +9,7 @@ export async function loadGuestReductionBasis(client: SupabaseClient, bookingId:
     ...(hasBookingOperationalAuthority(actor) ? { p_actor_staff_profile_id: actor!.id, p_actor_auth_user_id: actor!.user_id } : {}) });
   if (error) throw error;
   const basis = data as GuestReductionBasis;
-  if (basis.blockedReason === corporateComponentsMissing) {
+  if (!basis.preserveFinancials && basis.blockedReason === corporateComponentsMissing) {
     return {
       ...basis,
       componentConfirmationRequired: true,

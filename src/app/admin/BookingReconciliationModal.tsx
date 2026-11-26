@@ -210,7 +210,7 @@ export function FinancialReconciliationModal(
           setDraft((current) => ({ ...current, totalAmount }));
           if (operational) setFinancialComponents((current) => current ? { ...current, ticketAmount: toMoney(current.ticketAmount + totalAmount - draft.totalAmount) } : current);
         }} />
-        <MoneyInput disabled={Boolean(operational)} label="Total Amount Paid" value={draft.amountPaid} onChange={(amountPaid) => setDraft((current) => ({ ...current, amountPaid }))} />
+        <MoneyInput disabled={Boolean(props.details.operationalAuthority)} label="Total Amount Paid" value={draft.amountPaid} onChange={(amountPaid) => setDraft((current) => ({ ...current, amountPaid }))} />
       </div>
       <p className="mt-2 text-xs text-zinc-500">Total Booking Amount is the total value of this booking.</p>
       {operational && <details className="mt-4 rounded-xl border border-[#D8C36A]/25 p-4">
@@ -338,6 +338,7 @@ export function GuestCountReconciliationModal(
     : reductionDisposition === "outstanding-balance" && Number(requestedOperationalPreview?.outstandingBalanceAllocationAmount) > 0;
   const basis = hasOperationalAllocation ? operationalBasis : rawBasis;
   const isBuyoutReduction = Boolean(basis?.blockedReason?.startsWith("Buyout:"));
+  const preserveFinancials = Boolean(props.details.operationalAuthority && savedBasis?.preserveFinancials);
   const isZeroCompReduction = booking.paymentStatus === "comp_vip" && booking.totalAmount === 0 && booking.amountPaid === 0;
   const defaultReductionPreview = basis ? previewGuestReduction(basis, draft.guestCount) : null;
   const effectiveDisposition = !hasOperationalAllocation && defaultReductionPreview?.eligibleTicketAmount === 0 ? "review-refund" : reductionDisposition;
@@ -346,7 +347,7 @@ export function GuestCountReconciliationModal(
   const unpaidReduction = booking.amountPaid === 0 && reductionPreview?.fullRefundWindow === true;
   const operationalBarAvailable = rawBasis?.operationalAuthority && Number(previewGuestReduction({ ...rawBasis,
     operationalException: { waivePenalty: true, transferGratuity: true } }, draft.guestCount, "bar-credit")?.barCreditAmount) > 0;
-  const reductionBlocked = isReduction && !isBuyoutReduction && !isZeroCompReduction && !reductionPreview;
+  const reductionBlocked = isReduction && !preserveFinancials && !isBuyoutReduction && !isZeroCompReduction && !reductionPreview;
   const isComplimentaryIncrease =
     financials.addedGuests > 0 &&
     booking.paymentStatus === "comp_vip" &&
@@ -404,9 +405,9 @@ export function GuestCountReconciliationModal(
     setSubmissionError("");
     props.onSave({
       guestCount: draft.guestCount,
-      reductionDisposition: isReduction && !isBuyoutReduction && !isZeroCompReduction && !unpaidReduction ? effectiveDisposition : undefined,
-      reductionOperationId: isReduction && !isBuyoutReduction && !isZeroCompReduction ? operationId : undefined,
-      expectedReductionPreview: reductionPreview,
+      reductionDisposition: isReduction && !preserveFinancials && !isBuyoutReduction && !isZeroCompReduction && !unpaidReduction ? effectiveDisposition : undefined,
+      reductionOperationId: isReduction && !preserveFinancials && !isBuyoutReduction && !isZeroCompReduction ? operationId : undefined,
+      expectedReductionPreview: reductionPreview ?? undefined,
       expectedAdditionalAmount: financials.additionalAmount ?? undefined,
       manualPaymentBasis: requiresManualFinancialBasis
         ? draft.manualPaymentBasis || undefined
@@ -450,6 +451,7 @@ export function GuestCountReconciliationModal(
         <p className="mt-1 text-xs text-zinc-500">
           {isChargeableComp
             ? `The ${booking.complimentaryCategory === "media" ? "Media" : "Tradex"} COMP total will update to ${formatMoney(chargeableCompTotal ?? 0)}. Existing payments remain unchanged.`
+            : preserveFinancials ? "Existing financial amounts stay unchanged."
             : isBuyoutReduction ? "Fixed Buyout pricing and separately agreed terms remain unchanged."
             : "Review the cancellation allocation below. No payment or refund is processed by this change."}
         </p>
@@ -530,7 +532,7 @@ export function GuestCountReconciliationModal(
           {!confirmedBasis && <p className="mt-2 text-xs text-amber-200">Enter a breakdown matching the total.</p>}
         </section>
       )}
-      {isReduction && !isBuyoutReduction && !isZeroCompReduction && !savedBasis?.componentConfirmationRequired && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
+      {isReduction && !preserveFinancials && !isBuyoutReduction && !isZeroCompReduction && !savedBasis?.componentConfirmationRequired && basis?.blockedReason && <p role="alert" className="mt-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-100">{basis.blockedReason}</p>}
       {reductionPreview && (
         <section className="mt-4 rounded-xl border border-[#D8C36A]/30 bg-[#D8C36A]/5 p-4 text-sm text-zinc-200">
           <p className="text-xs font-semibold uppercase text-[#F2D66C]">{unpaidReduction ? "Guest reduction" : "Cancellation Allocation"}</p>
@@ -571,7 +573,7 @@ export function GuestCountReconciliationModal(
       {props.result ? (
         <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-950/20 p-4">
           <p className="text-sm font-semibold text-emerald-200">UPDATED ✓</p>
-          {isReduction && !isBuyoutReduction ? <p className="mt-1 text-xs text-zinc-300">Guest count and cancellation allocation saved.{reductionPreview?.manualResolutionRequired ? " Review the flagged balances with Accounts." : ""}</p> : props.result.floor_assignment_required ? (
+          {isReduction && !isBuyoutReduction ? <p className="mt-1 text-xs text-zinc-300">{preserveFinancials ? "Guest count saved. Existing financial amounts are unchanged." : "Guest count and cancellation allocation saved."}{reductionPreview?.manualResolutionRequired ? " Review the flagged balances with Accounts." : ""}</p> : props.result.floor_assignment_required ? (
             <p className="mt-1 text-xs text-zinc-300">
               Guest count updated. The previous table no longer fits this booking, so it now needs a table.
             </p>

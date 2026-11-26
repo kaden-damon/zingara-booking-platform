@@ -174,12 +174,13 @@ export async function GET(request: Request) {
       (row) => row.source_system === "manual_invoice",
     );
     const operationalAuthority = hasBookingOperationalAuthority(auth.staffProfile);
+    const reductionBasis = await loadGuestReductionBasis(auth.serviceClient, booking.id, auth.staffProfile);
     const allocation = bookingMetadata?.valueAllocation as Record<string, number> | undefined;
     const discount = Number(booking.discount_amount ?? bookingMetadata?.discountAmount ?? 0);
     const financialComponents = {
-      gratuityAmount: Number(allocation?.ticketGratuityAmount ?? allocationEvidence?.ticket_gratuity_amount ?? booking.service_fee),
-      barTabAmount: Number(allocation?.barTabAmount ?? allocationEvidence?.bar_tab_paid_amount ?? 0),
-      otherAmount: Number(allocation?.otherAmount ?? (bookingMetadata?.operationalFinancialAgreement as Record<string, unknown> | undefined)?.otherAmount ??
+      gratuityAmount: Number(reductionBasis.componentRecoverySource ? reductionBasis.gratuityAmount : allocation?.ticketGratuityAmount ?? allocationEvidence?.ticket_gratuity_amount ?? booking.service_fee),
+      barTabAmount: Number(reductionBasis.componentRecoverySource ? reductionBasis.barTabAmount : allocation?.barTabAmount ?? allocationEvidence?.bar_tab_paid_amount ?? 0),
+      otherAmount: Number(reductionBasis.componentRecoverySource ? reductionBasis.otherAmount : allocation?.otherAmount ?? (bookingMetadata?.operationalFinancialAgreement as Record<string, unknown> | undefined)?.otherAmount ??
         (Number(booking.addons_total) + Number((bookingMetadata?.pricingProvenance as Record<string, unknown> | undefined)?.bookingFeeAmount ?? 0) + Number(allocationEvidence?.bar_gratuity_amount ?? 0))),
       forfeitedAmount: Number(allocation?.forfeitedAmount ?? 0), gratuityForfeitedAmount: Number(allocation?.gratuityForfeitedAmount ?? 0),
       refundReviewAmount: Number(allocation?.refundReviewAmount ?? 0), gratuityReviewAmount: Number(allocation?.gratuityReviewAmount ?? 0),
@@ -188,7 +189,7 @@ export async function GET(request: Request) {
 
     return Response.json({
       operationalAuthority,
-      financialComponents: operationalAuthority ? { ...financialComponents, ticketAmount:
+      financialComponents: operationalAuthority && !reductionBasis.preserveFinancials ? { ...financialComponents, ticketAmount:
         Number(booking.total_amount) + discount - Object.entries(financialComponents).reduce((sum, [key, value]) => key === "discountAmount" ? sum : sum + value, 0) } : undefined,
       booking: {
         amountPaid: Number(booking.amount_paid),
@@ -232,7 +233,7 @@ export async function GET(request: Request) {
         booking.booking_origin === "corporate" &&
         booking.booking_source === "corporate-direct",
       addedGuestPricingBasis,
-      reductionBasis: await loadGuestReductionBasis(auth.serviceClient, booking.id, auth.staffProfile),
+      reductionBasis,
     });
   } catch (error) {
     console.error("[Zingara Reconciliation] Load failed", error);
@@ -391,7 +392,11 @@ export async function POST(request: Request) {
     const isBuyoutReduction = Boolean(reductionBasis?.blockedReason?.startsWith("Buyout:"));
     const isReductionReplay = body.action === "guest-count" && Boolean(body.reductionOperationId?.trim()) &&
       Number(body.guestCount) === Number(bookingContext?.guest_count);
-    const policyReduction = (isReduction && !isBuyoutReduction && !isZeroCompReduction) || isReductionReplay;
+    const preserveFinancials = Boolean(isReduction && operationalAuthority && reductionBasis?.preserveFinancials);
+    const policyReduction = (isReduction && !isBuyoutReduction && !isZeroCompReduction && !preserveFinancials) || isReductionReplay;
+    if (preserveFinancials && (body.reductionDisposition || body.expectedReductionPreview || body.retainedValueTransfer || body.manualPaymentBasis || body.manualUnitAmount !== undefined)) {
+      return Response.json({ error: "Existing financial amounts must stay unchanged for this amendment." }, { status: 400 });
+    }
     const defaultReductionPreview = policyReduction && reductionBasis
       ? previewGuestReduction(reductionBasis, Number(body.guestCount)) : null;
     const reductionDisposition = body.reductionDisposition ??
@@ -469,7 +474,9 @@ export async function POST(request: Request) {
           ? "reconcile_imported_booking_financials_atomic"
           : "reconcile_booking_financials_and_links_atomic"
         : body.action === "guest-count"
-          ? policyReduction
+          ? preserveFinancials
+            ? "reconcile_booking_guest_count_financials_atomic"
+            : policyReduction
             ? "reconcile_booking_guest_reduction_policy_atomic"
             : isCorporateFixedTotal
             ? "reconcile_corporate_booking_guest_count_atomic"
@@ -619,6 +626,8 @@ export async function POST(request: Request) {
             ...(body.buyoutComponents ? { p_components: body.buyoutComponents } : {}),
             ...(body.financialComponents ? { p_operational_components: body.financialComponents } : {}),
           }
+        : preserveFinancials
+          ? { ...requestMetadata, p_guest_count: Number(body.guestCount), p_preserve_unitemised_financials: true }
         : policyReduction
           ? { ...requestMetadata, p_guest_count: Number(body.guestCount),
               p_disposition: reductionDisposition, p_expected_preview: reductionPreview }

@@ -43,3 +43,28 @@ test("database failures still propagate without retrying", async () => {
   await assert.rejects(loadGuestReductionBasis(client, "booking-id"), error);
   assert.equal(calls, 1);
 });
+
+test("recovered conversion evidence needs no manual invoice controls", async () => {
+  const recovered = { ...basis, ticketAmount: 38500, gratuityAmount: 4812.5,
+    otherAmount: 0, guestCount: 25, amountPaid: 43312.5, totalAmount: 43312.5,
+    blockedReason: null, componentRecoverySource: "authorised-corporate-reconciliation" };
+  const client = { rpc: async () => ({ data: recovered, error: null }) } as unknown as SupabaseClient;
+  const result = await loadGuestReductionBasis(client, "booking-id");
+  assert.equal(result.componentConfirmationRequired, undefined);
+  const preview = previewGuestReduction(result, 21, "review-refund", new Date("2026-11-26T12:00:00Z"))!;
+  assert.equal(preview.ticketAmount, 32340);
+  assert.equal(preview.ticketGratuityAmount, 4042.5);
+  assert.equal(preview.forfeitedAmount, 6160);
+  assert.equal(preview.gratuityForfeitedAmount, 770);
+});
+
+test("unknown itemisation allows attendance-only recovery, never a guessed allocation", async () => {
+  const unknown = { ...basis, operationalAuthority: true, preserveFinancials: true };
+  const client = { rpc: async () => ({ data: unknown, error: null }) } as unknown as SupabaseClient;
+  const result = await loadGuestReductionBasis(client, "booking-id");
+  assert.equal(result.componentConfirmationRequired, undefined);
+  assert.equal(result.preserveFinancials, true);
+  for (const disposition of ["review-refund", "bar-credit", "outstanding-balance"] as const) {
+    assert.equal(previewGuestReduction({ ...result, blockedReason: null }, 11, disposition), null);
+  }
+});

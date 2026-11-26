@@ -232,3 +232,61 @@ booking, financial, ticket, seating or communication action was performed.
 - Evidence-only close-out Markdown is retained in a local commit for the next
   authorised application release under README, avoiding a redundant auto-deployment.
   Existing original-function/rollback checkpoints and private evidence are preserved.
+
+## 26 November: Lisa Converted-Booking Regression
+
+Supersedes the earlier claim of complete operational coverage for historical
+conversion rows. ZNG-VPU56U is Corporate-direct,25 guests,total/paid43312.50,
+balance0,show27NovCapeTown. Production basis blocked because service_fee0, despite
+the identity-linked request's approved financial_reconciliation recording
+ticketObligation38500,gratuity4812.50,additional0,total43312.50. The fallback also
+misclassified10 as a booking fee. No real booking was amended during this task.
+
+Root cause: `booking_guest_reduction_basis(uuid)` did not consume the existing
+authorised Corporate conversion evidence. The previous authority tests began with
+populated gratuity fields or an explicit financial edit, so they normalised away
+the original conversion gap before attempting a reduction.
+
+Small correction, existing workflow only:
+- Migration1900 recovers the existing structured source only when linked booking
+  identity, guest count, approved source/version, nonnegative cent values and exact
+  total match. No parsing notes, guessing12.5%, catalogue repricing or invented fee.
+- Existing manual-invoice/native/retained allocation paths remain. The same
+  reconciliation GET supplies recovered components to the existing payment editor;
+  the existing single basis request is reused, not an additional network request.
+- Genuinely missing itemisation for named staff uses the existing attendance,
+  ticket and Assignment Queue amendment, retaining every financial field. No
+  unsupported refund/bar/forfeiture split, invoice reconstruction, reason or extra
+  acknowledgement. The service-only boolean overload rechecks authority, version,
+  conflicting lock, lifecycle and basis under row lock and asserts money unchanged.
+  It cannot be used to bypass a known policy allocation or Buyout/refund guard.
+- Underlying receipts, original conversion evidence, audit history, public rules,
+  refund/accounting authority and permanent capacity controls are unchanged.
+  Automatic Timeline records come from the existing amendment functions.
+- AGENTS now requires recovery before reconstruction and testing raw conversion
+  state rather than first normalising it through the financial editor.
+
+Verified so far: eight actual authenticated UI/API/temporary-SQL save/reopen cases,
+including Lisa default and named bar transfer, converted unpaid/partial, imported
+known/unknown, native Corporate unknown and native Standard known. Original real
+financial source was copied into synthetic fixtures, with synthetic ticket codes
+and customer identities only. Lisa default: remaining tickets32340/gratuity4042.50,
+forfeitures6160+770,total/paid43312.50,balance0. Existing authorised bar option:
+bar6930,remaining gratuity4042.50,no forfeiture,total/paid unchanged. These are
+fixture outcomes, NOT a disposition chosen or applied to Lisa's real booking.
+
+Unknown attendance fixtures preserve43312.50 total,10000 paid,33312.50 balance;
+no invented valueAllocation. All cases keep receipt/QR identities,21 valid ticket
+entitlements, automatic actor audit and a reopened persisted guest count.
+One rollback-only SQL batch verifies eight protections: unauthorised, stale,
+other-staff lock, known-policy bypass, inconsistent money, cancelled lifecycle,
+contradictory source and no partial writes. Five server tests pass, including two
+new recovery tests; earlier60+5 authority tests are reused, not repeated.
+
+Both existing payment-editor cases now pass actual authenticated save/reopen:
+recovered and unknown components,43412.50 total,10000 genuine paid unchanged,
+33412.50 balance,stale links revoked. No manual reconstruction or invented payment.
+TypeScript,changed-file lint/diff pass. Final release/budget evidence and read-only
+live source verification remain pending below. Private original definitions and
+source snapshot: local-evidence/lisa-original-functions.json,lisa-reduction-before.json.
+No Frontend2 changes, new structures, configuration writes or customer emails.

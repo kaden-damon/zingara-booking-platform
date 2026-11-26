@@ -1,3 +1,34 @@
+# Box Office Historical Financial Recovery
+
+STATUS: VERIFIED LOCALLY / RELEASE IN PROGRESS
+
+DATE: 26 NOVEMBER 2026
+
+- ZNG-VPU56U remains unchanged:25 guests,total/paid43312.50,balance0. Lisa's
+  25->21 reduction hits the original missing Corporate component guard because
+  conversion stored service_fee0. Linked approved structured reconciliation already
+  records tickets38500/gratuity4812.50/other0 and exact total43312.50.
+- Existing basis ignored corporate_requests.financial_reconciliation; prior authority
+  fixtures covered populated service fees or manual financial confirmation first,
+  not the original converted row. No new staff controls are needed.
+- Contract: extend existing basis, modal and reconciliation API/atomic functions;
+  recover only identity-linked, same-count, exact-total approved components. Preserve
+  payments, locks, cutoff/forfeiture/refund restrictions, queue/tickets and Timeline.
+  Unknown itemisation allows named staff attendance-only saves with money unchanged,
+  not invented credits. No real customer amendment or communications during QA.
+- Necessary function-only1900 migration, no new columns/tables or ledger repair.
+  Verify actual authenticated Lisa fixture save/reopen and native/imported equivalents,
+  then scoped Main release with pendinge2471ab docs and unchanged cloud budget gate.
+  Frontend2/checkpoints untouched. Evidence: private local-evidence/lisa-* and
+  financial-recovery-*; details appended to existing operational-authority archive.
+- Essential verification passed:8 authenticated attendance save/reopen cases,
+  2 existing financial-editor save/reopen cases,8 SQL integrity/rejection checks,
+  5 server tests (2 new),TypeScript,changed-file lint/diff. Prior authority suite
+  reused. Actual Lisa source copied without prior financial normalisation.
+- Live pre-release definitions match captured originals; protected booking,receipts,
+  ticket,seating,source and audit fingerprints saved. No customer data changed.
+  Apply1900,scoped commit/push,cloud budget/READY/alias and live readback pending.
+
 # Urgent Box Office Operational Authority
 
 STATUS: RELEASED / READY; OUTSTANDING BUYOUT AND MULTI-ZONE WORKFLOWS VERIFIED

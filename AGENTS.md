@@ -104,3 +104,10 @@ path rather than an Accounts/developer-only blocker. Preserve true payment evide
 accurate components, locks, conflicting-assignment protection and duplicate prevention;
 never automatically split guests or invent additional public seats. Verify complete
 authenticated saves/reopens with safe fixtures, not visibility/builds alone.
+
+Recover approved financial components from linked structured conversion/invoice
+evidence before asking for historical amounts. Named staff must not reconstruct
+historical invoices merely to reduce attendance. If itemisation is genuinely
+unavailable, reuse the attendance amendment with all existing financial amounts
+unchanged; never guess refund, forfeiture or bar-credit components. Test converted
+bookings in their original saved state, without first normalising their finances.
