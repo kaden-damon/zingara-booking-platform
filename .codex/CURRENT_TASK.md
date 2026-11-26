@@ -1,6 +1,6 @@
 # Authorised AVA Events And R & C Trading Amendments
 
-STATUS: VERIFIED IN FIXTURES/ROLLBACK; CODE RELEASE AND AUTHORISED DATA COMMIT PENDING
+STATUS: RELEASED / READY; BOTH AUTHORISED PRODUCTION AMENDMENTS COMMITTED AND VERIFIED
 
 DATE: 26 NOVEMBER 2026
 
@@ -37,6 +37,33 @@ DATE: 26 NOVEMBER 2026
   acquires/releases existing edit-lock records and records explicit Timeline approval.
 - Include pending d0ec367; no Frontend2 changes. Existing archive cancellation record
   contains detail; final deployment/migration/data verification evidence to follow.
+- Release7c3894d6762a57b17734dd5a6e3e844ec999cc26 pushed Main with pending d0ec367.
+  Production dpl_AXbYxYiJipnEpaKxkjtuaDmJVSyd READY and aliased book.zingara.co.za;
+  exact-SHA list verified. Clean budget raw1310739/1320000,gzip318580/320000,
+  largest169236/170000 passes. /admin200, unauthenticated amendment POST401.
+- Applied only20261126150000 quote overload, preserved original12-arg function hash,
+  notified API schema cache. Both actual amendments then committed atomically at
+  approximately13:50 SAST with pre-commit exact totals/payment/QR/seating guards.
+  Existing five-minute stale-lock mechanism and exclusive session lock records used;
+  all own locks released. Session-temporary AVA exception functions explicitly dropped.
+- Independent readback confirms AVA28,paid65340,balance0,bar17760,show gratuity5040,
+  separate bar gratuity1500,refund-review reserve720 (not paid out);28 valid original
+  ticket entitlements, same1+2/14/15/16/17 table claims. Taylor14,subtotal16100,
+  gratuity2012.50,agreed non-cash deduction14196.23,net total/balance3916.27,paid0;
+  same504+505 seating and one original valid groupQR. Gross quote remains18112.50
+  before deduction; stored net total matches PDF TOTAL3916.27, never cash settlement.
+- All original payment rows and QR payloads unchanged; no duplicate tickets,
+  customer/identity/permission change or Xero document/communication created.
+  Original global policy/basis/delegates/paid-invoice function hashes unchanged;
+  no persistent cutoff override. Ten audit entries record authorised amendments,
+  Timeline exception and lock lifecycle with explicit automated execution attribution.
+- Private verification local-evidence/authorised-amendments-final-verification.json;
+  before/rollback/apply evidence retained. Real Production staff browser click not
+  claimed; authenticated actual-modal workflow verified with isolated fixtures and
+  actual committed outcomes independently read back. R720 gratuity remains held
+  under existing refund-review workflow; no separate refund authority inferred.
+- Final verified Markdown committed locally for next authorised release per README,
+  avoiding a redundant documentation-only Production deployment.
 
 ---
 

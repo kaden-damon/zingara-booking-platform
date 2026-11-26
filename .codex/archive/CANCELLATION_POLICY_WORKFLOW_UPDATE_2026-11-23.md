@@ -66,6 +66,52 @@ Include pending d0ec367. Release and actual authorised data commit still pending
 at this record; final evidence follows. Do not mark either amendment completed
 until committed states have been independently read back and verified.
 
+**Completed release and authorised Production data amendments:** code
+7c3894d6762a57b17734dd5a6e3e844ec999cc26 (includes pending d0ec367) pushed Main;
+dpl_AXbYxYiJipnEpaKxkjtuaDmJVSyd READY with actual book.zingara.co.za alias and
+exact-SHA list verified. Clean budget raw1310739/1320000,gzip318580/320000,
+largest169236/170000 passes unchanged limits. Live Admin200; unauthenticated
+financial amendment POST401. New overloaded function migration20261126150000
+alone applied and recorded; original paid12-argument function unchanged. API schema
+cache notified. No unrelated ledger repair or schema/table changes.
+
+Real amendments committed atomically26Nov2026 approximately13:50 SAST, after
+rollback verification and final in-transaction safeguards for totals, original
+payment rows, ticket QR identities, seating claims and actual actor permissions.
+Existing lock row lifecycle used (no force takeover of an active editor), recorded
+in audit; all session locks released. The narrowly restricted AVA exception
+functions were session-temporary and explicitly dropped before commit. Original
+global policy/basis/amendment function definitions remain byte-for-byte unchanged.
+
+Independently read back:
+- ZNG-KBP646:28 guests,recorded paid65340,total65340,outstanding0. Remaining
+  ticket value40320,show gratuity5040,bar allocation17760 including new ticket
+  transfer5760,bar gratuity1500. Cancelled-guest gratuity720 retained under existing
+  refund-review reserve, not refunded or put on bar.28 valid original ticket
+  entitlements; same five table claims1+2/14/15/16/17, capacity36 unchanged.
+- DP-KNDVPC:14 guests, ticket subtotal16100,gratuity2012.50,gross quote18112.50,
+  agreed trade-exchange deduction14196.23,net stored total/outstanding3916.27,
+  recorded cash paid0. This matches PDF's printed TOTAL3916.27, not a fictitious
+  receipt of14196.23. Original zero COMP payment row retained unchanged as history;
+  original single valid groupQR and504+505 table/capacity24 retained.
+
+Verification confirms no new payment/duplicate ticket, no customer identity or
+permission changes, no accounting document or communication issued. Original
+payment rows, all QR payloads and original global function hashes unchanged;
+ten audit entries include the authorised exception, financial source and session
+lock lifecycle. Audit reasons explicitly distinguish Kaden's authority from
+automated execution; known Timeline actions retain approval wording for authorised
+staff. Real authenticated Production browser clicks were not performed/claimed;
+actual form/API/SQL save/reopen was fixture-tested and real committed outcomes
+independently verified from Production records.
+
+Private evidence:authorised-amendments-{before,rollback-results,apply-results,
+final-verification}.json and guarded operation SQL, authorised-quote-workflow-
+results.json/screenshots. R720 cancelled-guest gratuity remains held pending the
+existing authorised refund-review process; no refund instruction inferred. No
+remaining amendment/save blocker for the two completed bookings. Final Markdown
+retained as local commit for next authorised release; no redundant docs deployment.
+
 ### 26 November Follow-Up: Unpaid Meditech Reduction
 
 Current task authority: correct unpaid preview/save, preserve funds and cutoffs,
