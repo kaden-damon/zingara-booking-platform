@@ -112,6 +112,16 @@ unavailable, reuse the attendance amendment with all existing financial amounts
 unchanged; never guess refund, forfeiture or bar-credit components. Test converted
 bookings in their original saved state, without first normalising their finances.
 
+For booking/payment/seating/cancellation changes, maintain the operational action
+matrix in the existing authority archive: booking/payment states, remaining valid
+guards, actual completion and evidence. Exercise authenticated save/reopen through
+the existing component, API and atomic database workflow with original-state safe
+fixtures. Cover affected native/imported/converted, COMP/Buyout/multi-zone and both
+venues; reuse unaffected evidence. A calculation test, visible control, successful
+build or normalised fixture is not operational proof. Mark gaps unverified rather
+than complete. Independent payment recording must not depend on price itemisation;
+known components recalculate, genuinely unavailable components preserve money.
+
 Record genuine receipts through the existing evidence-backed payment workflow,
 independently of historical pricing reconciliation. A pricing-component mismatch
 must not block receipt recording or prompt fabricated components or payments.

@@ -20,6 +20,7 @@ export type OperationalFinancialComponents = Record<(typeof operationalFinancial
 export function validateOperationalFinancialComponents(value: unknown, total: number): value is OperationalFinancialComponents {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
+  if (Object.keys(record).some(key => !(operationalFinancialFields as readonly string[]).includes(key))) return false;
   return operationalFinancialFields.every((key) => typeof record[key] === "number" && Number.isFinite(record[key]) &&
     Number(record[key]) >= 0 && Math.abs(Number(record[key]) * 100 - Math.round(Number(record[key]) * 100)) < 0.000001) &&
     Math.round(operationalFinancialFields.reduce((sum, key) => sum + Number(record[key]) * (key === "discountAmount" ? -1 : 1), 0) * 100) === Math.round(total * 100);

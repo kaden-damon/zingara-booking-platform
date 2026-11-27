@@ -446,3 +446,107 @@ Release/unchanged cloud budget/live evidence pending below. Frontend2 untouched.
   YEUE6V-final-protected-verification.json and prior fixture results/screenshots.
   Final evidence-only close-out committed locally per README for next release;
   no redundant documentation-only deployment. Frontend2/checkpoints untouched.
+
+## 27 November: Consolidated Operational Remediation
+
+Status: TARGETED CORRECTIONS VERIFIED; APPLICATION RELEASE PENDING.
+
+Existing control/API/SQL gap:FinancialReconciliationModal ->reconciliation API ->
+protected component function still inherited COMP/positive-total restrictions;
+zero retained-allocation fields were hidden. Metadata add-on edits could release
+paid funds but were blocked,while the alternative price editor required retaining
+the old addon total,creating a circular workflow. Customer reassignment required
+a reason even for named staff. Reuse these existing paths,with receipt,revision,
+lock,refund,venue and authorised-identity checks intact. Function-only1000 migration,
+no new tables/columns/API/roles. No historical/customer changes authorised here.
+
+Verification correction:prior fixtures sometimes normalised source components
+before the action,and unit/source/budget evidence was overgeneralised to workflows
+not actually exercised. Mandatory matrix below distinguishes actual authenticated
+fixture saves/reopens,prior unchanged evidence,and still-unverified operations.
+Do not call the consolidated acceptance complete while gaps remain.
+
+### Operational Coverage Matrix
+
+All named active identities retain all-venue scope;Nomza/Tao remain unprovisioned.
+Fixture evidence is private local-evidence,not a Production customer mutation.
+
+| Action / states | Legitimate restrictions retained | Completion / evidence |
+| --- | --- | --- |
+| Standard guest reduction,unpaid/deposit/partial/full | Cutoffs,paid-funds ceiling,refund authority,revision | Prior authenticated balance-allocation and bug39/40 workflow results;unchanged evidence reused |
+| Corporate reduction,known native/imported/converted | Exact original components,paid funds,locks | Prior financial-recovery-workflow-results:8 saves/reopens,Lisa25->21 included |
+| Historical unknown attendance reduction | Preserve ALL existing money,never invent credit | Same prior authenticated unknown-source fixture,43312.50 retained |
+| Rasmus PB4 and agreed-price correction | Public PB6–8 unchanged,physical fit,receipts | Prior operational-rasmus/fatima workflow results,both venues |
+| Meditech unpaid60->20 | No unpaid refunds/bar,release attendance capacity | Prior unpaid-corporate-workflow-results,total32400;actual authorised YHKCS7 record/export evidence reused |
+| Balance allocation12->9 | Paid funds only,no forfeiture allocation,no fake receipt | Prior balance-allocation-installed-workflow-results,6352.50 tickets+preserved10 fee=6362.50 overall |
+| Eligible/exceptional bar transfer incl gratuity | Named authority,paid ceiling,remaining gratuity | Prior operational-rasmus/fatima authenticated saves,both venues |
+| Known priced guest increases / NYE | Existing agreement/full-payment ticket guard,locks | Prior bug38/balance Corporate increase evidence;new free-agreement path pending |
+| Agreed pricing/discount/gratuity edits | Paid evidence immutable,reserves funded,exact components | Prior evidence plus4 actual COMP UI/API/tempSQL price/discount/increase saves/reopens,native/imported,both venues |
+| Trade exchange | Noncash deduction,not payment,exact authorised quote | Prior authorised-quote-workflow-results,18112.50 less14196.23=3916.27 |
+| Record independent partial/full verified EFT | Genuine receipt/date/ref,duplicate guard,no pricing prerequisite | Prior YEUE6V-workflow-results:4 actual Vanessa UI/API/tempSQL workflows,both venues |
+| Add-on charge/removal,paid/COMP/unknown/Buyout | Dietary cutoffs,accurate components,no automatic refund |6 authenticated API/tempSQL saves/reopens plus4 Buyout cases,both venues;unknown money preserved explicitly |
+| Buyout/multizone price/count/allocation | Fixed contractual package,real table fit,no invented seats | Prior operational-completion-results:4 authenticated workflows,both venues |
+| Temporary table create/edit/assign/remove | Existing table access,assigned capacity/conflict guards | Prior temporary-table-workflow-results,both venues |
+| Permanent table seats/capacity | Kaden/Fatima only,public120/125/138/32=415 | Existing permission/regression evidence reused;no change |
+| Manual zone/table set and splitting | Explicit manual set,real fit,no automatic splitting/conflict | Prior operational-completion actual table-set assignment;other split combinations not newly exercised |
+| Payment link refresh | Current balance/fee,invalid old link,no duplicate attempt | Prior balance-allocation/bug40 actual API workflows |
+| Customer reassignment | Authenticated management,existing target,active lock/revision,no merge |2 authenticated Lisa API/tempSQL saves/reopens,both venues,no reason;original money/receipts unchanged |
+| Booking cancellation | Original refund/accounting authority,atomic lifecycle | Named direct-save source confirmed;full new authenticated fixture not yet verified |
+| Booking reinstatement/expired paid recovery | Live capacity/authorised exact recovery,ticket entitlement | Prior explicit XQU79F/X94SUT recovery evidence;not general new fixture coverage |
+| Show transfer | Capacity,paid evidence,QR/lifecycle consistency | Source review only;new authenticated completion unverified |
+| Standard/Corporate/COMP/Buyout creation | Existing signed staff handoff,capacity,pricing,duplicate guards | Prior release/source evidence only;full current authenticated creation matrix unverified |
+| Ticket issue/reissue/confirmation/resend | Payment eligibility,security,duplicate prevention/preferences | Prior ticket/notification evidence reused;no actual customer communications in QA |
+| Financial summaries/Table Plans/Function Briefs | Original formulas,one financial total,exact mappings | Prior Meditech/Vodacom export evidence;changed component scenarios pending consistency checks |
+| Operational notes,attending guest and dietary quantities | Existing identity/projection/dietary ordering cutoff | Existing metadata path retained;new monetary-addon path saves same approved metadata atomically |
+| Function Brief/bar brief/checklist editing | Existing booking access,venue scope,document revision | Existing direct-save PUT/SQL reviewed;prior Vodacom Function Brief verification reused,not newly exercised |
+| Archive/restore and legacy deletion | Existing destructive-administration access,locks,venue scope | Archive unchanged;legacy deletion missing auth guard corrected,unauthenticated401/restricted403 verified without deletion |
+
+Current genuine restrictions are not commercial approval substitutes:refund and
+accounting authority,permanent-seat privilege,paid evidence integrity,concurrent
+edits,conflicting physical seating,public limits and ticket eligibility remain.
+Full cancelled/transfer/creation completion must not be claimed from source alone.
+
+### Targeted Results Before Release
+
+-18 newly exercised authenticated cases:4 actual financial-modal browser/API/tempSQL
+  COMP native/imported price/full-discount/increase workflows;6 monetary-addon API/
+  tempSQL cases;4 Buyout addon cases with/without prior allocation;2 customer
+  reassignments;2 zero-ticket/charged-extra attendance increases. Both venues,actual
+  verified Rasmus/Lisa/Vanessa profile/auth identity pairs,synthetic data only.
+  API-only cases are not represented as full browser interaction tests.
+- Paid addon removal reserves released funds in the EXISTING refund-review component,
+  not a cash refund or bar-credit invention. Existing add-on gratuity calculator is
+  reused unchanged. Buyout original contract snapshots/guest-cancellation exclusion
+  remain. Reliable current allocation/contract components are consumed first;
+  genuinely missing itemisation retains financial amounts,not invented line items.
+  Current agreed pricing remains separately editable;no guessed historical invoice.
+- Explicit zero-price agreement is retained on later increases,including imported
+  bookings and complimentary tickets with separately charged extras. Old deposit/
+  catalogue provenance must not override a current protected agreement.
+-33 focused tests pass;4 actual SQL rejection/rollback guards pass (unrelated
+  identity,immutable receipts,stale revision,late audit failure rolling back price/
+  links/audit).2 HTTP legacy-deletion denials pass before mutation. Previous recent
+  guest-reduction,EFT,temporary-table,NYE and report evidence reused,not rerun.
+- Temporary management-CLI authentication HTTP500 interrupted one verification run;
+  completed cases retained and only unfinished cases resumed. Not evidence of a
+  customer-facing outage. QA creates no real booking,receipt,ticket or email.
+- Private operational-remediation-{workflow,special,zero-ticket-extras,guard}-results
+  JSON and Johannesburg progress JSON contain fixture evidence. Cape Town COMP
+  passes were observed in tool output before interruption;not fabricated as a fresh
+  later run. Original-function captures provide function rollback,not business data.
+- Function-only1000 migration,final types/lint,unchanged cloud budget and actual
+  Production alias/function/read-only protected-record verification gates follow.
+  Do not claim untouched creation/show-transfer/full-cancellation branches received
+  fresh authenticated end-to-end verification:the matrix retains those gaps.
+
+### Function Migration And Release Boundary
+
+Function-only20261127100000 applied after temporary-table rollback tests and MD5
+guards against the four exact installed definitions. No schema columns/tables,
+business-data statements,automatic repricing,staff grants or migration-ledger
+repair. Prior known ledger discrepancy remains outside scope. Original definitions
+retained privately in operational-remediation-original-functions and basis-before
+JSON for selective function rollback;do not erase historical bookings to roll back.
+Final TypeScript,scoped lint and diff checks pass. Seven protected real bookings
+were snapshotted read-only before applying;post-install comparison and deployment
+evidence follow. App commit/cloud build/unchanged budget/live alias pending.

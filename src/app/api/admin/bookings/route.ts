@@ -1,5 +1,6 @@
 import { normalizeAttendingGuestName } from "@/lib/bookingGuestName";
 import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
+import { loadGuestReductionBasis } from "@/lib/guestReductionServer";
 import { getTableBookingMaximum } from "@/lib/physicalTables";
 import {
   getAdminRoleFromName,
@@ -36,6 +37,7 @@ import { getDietaryRequirementsProjection } from "@/lib/bookingMetadataDraft";
 import {
   calculateBookingAddonFinancialUpdate,
   getBookingAddonTotal,
+  getOperationalAddonAgreement,
   hasPricedBookingAddons,
   normalizeInternalBookingAddons,
 } from "@/lib/bookingAddons";
@@ -3511,6 +3513,45 @@ async function persistBookingMetadataUpdate(
   });
   const financialChanged = nextAddonsTotal !== previousAddonsTotal;
 
+  if (financialChanged && hasBookingOperationalAuthority(auth.staffProfile)) {
+    const current = beforeBooking as Record<string, unknown>;
+    const basis = await loadGuestReductionBasis(auth.serviceClient, String(current.id), auth.staffProfile);
+    const components = getOperationalAddonAgreement({
+      basis, addonDelta: nextAddonsTotal - previousAddonsTotal,
+      gratuityDelta: financials.serviceFee - Number(current.service_fee ?? 0),
+      complimentary: current.payment_status === "comp_vip" && Number(current.total_amount) === 0 && Number(current.amount_paid) === 0,
+      amountPaid: Number(current.amount_paid ?? 0), discountAmount: Number(current.discount_amount ?? 0),
+    });
+    const retainedTotal = components ? Math.round(Object.entries(components).reduce(
+      (sum, [key, value]) => sum + (key === "discountAmount" ? -value : value), 0) * 100) / 100 : Number(current.total_amount);
+    const { data, error } = await auth.serviceClient.rpc("reconcile_booking_financials_and_links_atomic", {
+      p_booking_reference: bookingReference, p_expected_updated_at: previousUpdatedAt,
+      p_total_amount: retainedTotal, p_amount_paid: Number(current.amount_paid ?? 0),
+      p_reason: "Authorised Box Office add-on adjustment. Existing receipts preserved.",
+      p_actor_staff_profile_id: auth.staffProfile.id, p_actor_auth_user_id: auth.user.id,
+      p_request_id: request.headers.get("x-request-id") ?? crypto.randomUUID(), p_user_agent: request.headers.get("user-agent"),
+      p_operational_components: { ...components, _preserveFinancials: !components,
+        _bookingMetadata: { addons, operationalNotes, attendingGuestName: attendingGuestName ?? null,
+          dietaryRequirements: getDietaryRequirementsProjection(operationalNotes) } },
+    });
+    if (error) throw error;
+    const result = data as { updated_at: string; total_amount: number; balance_outstanding: number;
+      service_fee?: number; subtotal_amount?: number; addons_total?: number; payment_links_revoked?: number; financials_preserved?: boolean };
+    if (addonsChanged && ["confirmed", "checked_in"].includes(String(current.booking_status))) {
+      after(async () => {
+        try { await notifyConfirmedDietaryOrderByBookingId(auth.serviceClient!, {
+          bookingId: String(current.id), confirmationKey: result.updated_at, existingAddons: previousAddons,
+        }); } catch (error) { console.error("[Zingara Dietary] Confirmed order notification failed", error); }
+      });
+    }
+    return Response.json({ addons, attendingGuestName: attendingGuestName ?? null, operationalNotes,
+      addonsTotal: result.addons_total ?? nextAddonsTotal, balanceDue: result.balance_outstanding,
+      totalPrice: result.total_amount, serviceFeeAmount: result.service_fee ?? components?.gratuityAmount ?? Number(current.service_fee),
+      subtotalPrice: result.subtotal_amount ?? result.total_amount - Number(components?.gratuityAmount ?? current.service_fee),
+      financialChanged: !result.financials_preserved, financialsPreserved: Boolean(result.financials_preserved),
+      paymentLinksInvalidated: result.payment_links_revoked ?? 0, updatedAt: result.updated_at });
+  }
+
   if (
     (beforeBooking as { payment_status?: string }).payment_status === "comp_vip" &&
     hasPricedBookingAddons(addons)
@@ -4286,14 +4327,13 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = getRouteClient();
-
-  if (!supabase) {
-    return Response.json(
-      { error: "Supabase service role is not configured." },
-      { status: 500 },
-    );
+  const auth = await requireActiveStaff(request);
+  if (auth.error || !auth.serviceClient || !auth.staffProfile || !auth.user) return auth.error;
+  const staffRole = Array.isArray(auth.staffProfile.roles) ? auth.staffProfile.roles[0] : auth.staffProfile.roles;
+  if (getAdminRoleFromName(staffRole?.name) !== "super-admin") {
+    return Response.json({ error: "Super Admin access is required." }, { status: 403 });
   }
+  const supabase = auth.serviceClient;
 
   const url = new URL(request.url);
   const body = (await request.json().catch(() => ({}))) as {
@@ -4319,6 +4359,15 @@ export async function DELETE(request: Request) {
     .select(bookingSelect)
     .eq("booking_reference", reference)
     .maybeSingle();
+
+  if (!beforeBooking) return Response.json({ error: "Booking could not be resolved." }, { status: 404 });
+  const { data: show, error: showError } = await supabase.from("shows")
+    .select("venue").eq("id", beforeBooking.show_id).maybeSingle();
+  const location = normalizeShowLocation(show?.venue);
+  const scope = normalizeStaffVenueScope(auth.staffProfile.venue_scope ?? []);
+  if (showError || !location || (!scope.includes("all") && !scope.includes(location))) {
+    return Response.json({ error: "This booking is outside your assigned location." }, { status: 403 });
+  }
 
   const { error } = await supabase
     .from("bookings")

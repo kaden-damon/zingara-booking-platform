@@ -3,6 +3,7 @@ import test from "node:test";
 import { bookingOperationalStaffIds, hasBookingOperationalAuthority, validateOperationalFinancialComponents } from "./bookingOperationalAuthority.ts";
 import { previewGuestReduction, type GuestReductionBasis } from "./guestReductionPolicy.ts";
 import { calculateAddedGuestFinancials, resolveAddedGuestPricingBasis } from "./addedGuestFinancials.ts";
+import { getOperationalAddonAgreement } from "./bookingAddons.ts";
 
 test("only the eight verified active profiles receive commercial authority", () => {
   assert.equal(new Set(bookingOperationalStaffIds).size, 8);
@@ -25,6 +26,39 @@ test("agreed financial components reconcile without inventing receipts", () => {
   }
   assert.equal(validateOperationalFinancialComponents({ ...components, otherAmount: 10 }, 5760), false);
   assert.equal(validateOperationalFinancialComponents({ ...components, discountAmount: 100 }, 5660), true);
+  assert.equal(validateOperationalFinancialComponents({ ...components, _bookingMetadata: {} }, 5760), false);
+});
+
+test("paid add-on reductions reserve released funds without issuing a refund", () => {
+  const result = getOperationalAddonAgreement({ basis: { ...basis, ticketAmount: 1000, gratuityAmount: 125, otherAmount: 500 },
+    addonDelta: -500, gratuityDelta: -62.5, complimentary: false, amountPaid: 1625, discountAmount: 0 })!;
+  assert.equal(result.ticketAmount, 1000);
+  assert.equal(result.gratuityAmount, 62.5);
+  assert.equal(result.otherAmount, 0);
+  assert.equal(result.refundReviewAmount, 562.5);
+  assert.equal(validateOperationalFinancialComponents(result, 1625), true);
+});
+
+test("unknown add-on components are not invented and known Buyout terms are reused", () => {
+  const input = { basis: { ...basis, blockedReason: "Buyout: fixed package", otherAmount: 500 }, addonDelta: -500,
+    gratuityDelta: 0, complimentary: false, amountPaid: 0, discountAmount: 0 };
+  assert.equal(getOperationalAddonAgreement(input), null);
+  assert.equal(getOperationalAddonAgreement({ ...input, basis: { ...input.basis, contractComponentsKnown: true } })?.otherAmount, 0);
+  const mixed = getOperationalAddonAgreement({ ...input, basis: { ...basis, blockedReason: "Mixed seating prices require authorised Accounts review." }, addonDelta: 100 });
+  assert.equal(mixed?.ticketAmount, 14400);
+  assert.equal(mixed?.otherAmount, 100);
+});
+
+test("an explicitly agreed free booking retains zero pricing on later increases", () => {
+  const pricing = resolveAddedGuestPricingBasis({ metadata: { partySize: 4, operationalFinancialAgreement: { ...components, discountAmount: 5760 } },
+    paymentStatus: "comp_vip", totalAmount: 0, amountPaid: 0 });
+  assert.equal(pricing.source, "complimentary");
+  assert.equal(pricing.unitAmount, 0);
+  assert.equal(calculateAddedGuestFinancials({ basis: pricing, currentGuestCount: 4, newGuestCount: 5, currentOutstanding: 0 }).additionalAmount, 0);
+  const withExtras = resolveAddedGuestPricingBasis({ metadata: { partySize: 4, operationalFinancialAgreement: { ...components, ticketAmount: 0, otherAmount: 100 } },
+    paymentStatus: "pending_payment", totalAmount: 100, amountPaid: 0, balanceOutstanding: 100 });
+  assert.equal(withExtras.source, "staff-agreed");
+  assert.equal(calculateAddedGuestFinancials({ basis: withExtras, currentGuestCount: 4, newGuestCount: 5, currentOutstanding: 100 }).newOutstanding, 100);
 });
 
 const basis: GuestReductionBasis = { bookingKind: "corporate", guestCount: 10, ticketAmount: 14400,

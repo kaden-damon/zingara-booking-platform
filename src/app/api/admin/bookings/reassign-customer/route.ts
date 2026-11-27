@@ -1,4 +1,5 @@
 import { getActorRoleLabel } from "@/lib/auditTrail";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import { getAdminRoleFromName, requireActiveStaff } from "@/lib/supabase/serverAdmin";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,8 @@ export async function POST(request: Request) {
       reason?: string;
     };
     const sessionId = request.headers.get("x-zingara-booking-lock-session")?.trim() ?? "";
-    if (!body.bookingReference || !body.customerId || !body.expectedUpdatedAt || !body.reason?.trim() || !sessionId) {
+    const reason = body.reason?.trim() || (hasBookingOperationalAuthority(auth.staffProfile) ? "Authorised Box Office booking customer reassignment." : "");
+    if (!body.bookingReference || !body.customerId || !body.expectedUpdatedAt || !reason || !sessionId) {
       return Response.json({ error: "Booking, customer, reason and active editing session are required." }, { status: 400 });
     }
     const { data, error } = await auth.serviceClient.rpc("reassign_booking_customer_atomic", {
@@ -35,7 +37,7 @@ export async function POST(request: Request) {
       p_expected_updated_at: body.expectedUpdatedAt,
       p_lock_session_id: sessionId,
       p_new_customer_id: body.customerId,
-      p_reason: body.reason,
+      p_reason: reason,
       p_request_id: request.headers.get("x-vercel-id") ?? request.headers.get("x-request-id") ?? crypto.randomUUID(),
       p_user_agent: request.headers.get("user-agent"),
     });

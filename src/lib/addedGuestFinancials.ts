@@ -75,6 +75,15 @@ export function resolveAddedGuestPricingBasis(input: {
   if (agreement && Number.isInteger(input.metadata?.partySize) && Number(input.metadata?.partySize) > 0) {
     const tickets = Number(input.metadata?.valueAllocation?.ticketAmount ?? Number(agreement.ticketAmount) - Number(agreement.discountAmount));
     const gratuity = Number(input.metadata?.valueAllocation?.ticketGratuityAmount ?? agreement.gratuityAmount);
+    if (tickets === 0 && gratuity === 0 && input.paymentStatus === "comp_vip" &&
+      Number(input.totalAmount) === 0 && Number(input.amountPaid) === 0) {
+      return { paymentBasis: "full", source: "complimentary", unitAmount: 0 };
+    }
+    if (tickets === 0 && gratuity === 0 && Number.isFinite(input.totalAmount) &&
+      Number(input.amountPaid) >= 0 && Number(input.amountPaid) <= Number(input.totalAmount) &&
+      Number(input.balanceOutstanding) === Number(input.totalAmount) - Number(input.amountPaid)) {
+      return { paymentBasis: "full", source: "staff-agreed", unitAmount: 0 };
+    }
     if (Number.isFinite(tickets) && tickets > 0 && Number.isFinite(gratuity) && gratuity >= 0) {
       return { paymentBasis: "full", source: "staff-agreed", unitAmount: Math.round(tickets / Number(input.metadata?.partySize) * 100) / 100,
         ...(gratuity > 0 ? { gratuityRate: gratuity / tickets } : {}) };

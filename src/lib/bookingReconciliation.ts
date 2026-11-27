@@ -1,4 +1,5 @@
 export type FinancialReconciliationInput = {
+  allowComplimentary?: boolean;
   amountPaid: number;
   reason: string;
   totalAmount: number;
@@ -20,7 +21,7 @@ export function getReconciledPaymentStatus(
 export function validateFinancialReconciliation(
   input: FinancialReconciliationInput,
 ) {
-  if (!Number.isFinite(input.totalAmount) || input.totalAmount <= 0) {
+  if (!Number.isFinite(input.totalAmount) || input.totalAmount < 0 || (input.totalAmount === 0 && !input.allowComplimentary)) {
     return "Booking obligation must be greater than zero.";
   }
 

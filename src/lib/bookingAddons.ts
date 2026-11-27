@@ -1,4 +1,6 @@
 import type { BookingAddon, EntryLocationKey } from "./zingaraDemo";
+import type { GuestReductionBasis } from "./guestReductionPolicy";
+import type { OperationalFinancialComponents } from "./bookingOperationalAuthority";
 
 const unavailableBookingAddonCatalogue: BookingAddon[] = [
   { id: "arrival-drinks", kind: "catalogue", name: "Arrival Drinks", price: 0, pricingType: "operational", quantity: 1, unitPrice: 0 },
@@ -347,4 +349,31 @@ export function calculateBookingAddonFinancialUpdate(input: {
     subtotalAmount: nextSubtotal,
     totalAmount,
   };
+}
+
+// Reuse known components and reserve released paid money; never issue a refund.
+export function getOperationalAddonAgreement(input: {
+  basis: GuestReductionBasis; addonDelta: number; gratuityDelta: number;
+  complimentary: boolean; amountPaid: number; discountAmount: number;
+}): OperationalFinancialComponents | null {
+  const { basis } = input;
+  const knownAggregate = basis.blockedReason === "Mixed seating prices require authorised Accounts review." &&
+    currency(basis.ticketAmount + basis.gratuityAmount + basis.barTabAmount + basis.otherAmount) === currency(basis.totalAmount);
+  if (basis.blockedReason && !basis.contractComponentsKnown && !knownAggregate && !input.complimentary) return null;
+  const free = input.complimentary;
+  const components: OperationalFinancialComponents = {
+    ticketAmount: (free ? 0 : basis.ticketAmount) + input.discountAmount,
+    gratuityAmount: currency((free ? 0 : basis.gratuityAmount) + input.gratuityDelta),
+    barTabAmount: free ? 0 : basis.barTabAmount,
+    otherAmount: currency((free ? 0 : basis.otherAmount) + input.addonDelta),
+    discountAmount: input.discountAmount,
+    forfeitedAmount: basis.retainedAmounts?.forfeitedAmount ?? 0,
+    gratuityForfeitedAmount: basis.retainedAmounts?.gratuityForfeitedAmount ?? 0,
+    refundReviewAmount: basis.retainedAmounts?.refundReviewAmount ?? 0,
+    gratuityReviewAmount: basis.retainedAmounts?.gratuityReviewAmount ?? 0,
+  };
+  if (Object.values(components).some(value => !Number.isFinite(value) || value < 0)) return null;
+  const retained = Object.entries(components).reduce((sum, [key, value]) => sum + (key === "discountAmount" ? -value : value), 0);
+  components.refundReviewAmount = currency(components.refundReviewAmount + Math.max(input.amountPaid - retained, 0));
+  return components;
 }

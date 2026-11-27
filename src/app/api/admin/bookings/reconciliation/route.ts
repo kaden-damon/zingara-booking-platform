@@ -434,7 +434,7 @@ export async function POST(request: Request) {
         amountPaid: Number(bookingContext.amount_paid),
         balanceOutstanding: Number(bookingContext.balance_outstanding),
       });
-      if (basis.paymentBasis === "full" && ["standard-zone", "friends-family", "show-specific", "staff-agreed"].includes(basis.source)) {
+      if (basis.paymentBasis === "full" && ["standard-zone", "friends-family", "show-specific", "staff-agreed", "complimentary"].includes(basis.source)) {
         const preview = calculateAddedGuestFinancials({ basis,
           currentGuestCount: Number(bookingContext.guest_count), newGuestCount: Number(body.guestCount),
           currentOutstanding: Number(bookingContext.balance_outstanding),
@@ -495,6 +495,7 @@ export async function POST(request: Request) {
 
     if (body.action === "financial") {
       const validationError = validateFinancialReconciliation({
+        allowComplimentary: operationalAuthority && Boolean(body.financialComponents),
         amountPaid: Number(body.amountPaid),
         reason,
         totalAmount: Number(body.totalAmount),

@@ -367,6 +367,7 @@ export function FinancialReconciliationModal(
     discountAmount: 0,
   });
   const requiresImportedEvidence =
+    !props.details.operationalAuthority &&
     booking.bookingOrigin === "data_import" &&
     booking.paymentStatus === "comp_vip" &&
     !props.details.retainedValueBasis;
@@ -374,7 +375,7 @@ export function FinancialReconciliationModal(
   const operational = props.details.operationalAuthority && !requiresImportedEvidence && financialComponents;
   const componentsValid = !operational || validateOperationalFinancialComponents(financialComponents, draft.totalAmount);
   const outstanding = Math.max(toMoney(draft.totalAmount - draft.amountPaid), 0);
-  const validation = validateFinancialReconciliation(draft);
+  const validation = validateFinancialReconciliation({ ...draft, allowComplimentary: Boolean(operational) });
   const corporatePrice = props.details.corporateFixedTotal;
 
   return (
@@ -395,7 +396,7 @@ export function FinancialReconciliationModal(
           <p className="mt-2 text-sm text-white">Total Booking Amount {formatMoney(draft.totalAmount)}</p>
           <p className="text-sm text-white">Total Amount Paid {formatMoney(draft.amountPaid)}</p>
           <p className="text-sm text-white">Outstanding Balance {formatMoney(outstanding)}</p>
-          <p className="mt-2 text-xs text-zinc-400">Payment Status {getReconciledPaymentStatus(draft.totalAmount, draft.amountPaid).replaceAll("_", " ")}</p>
+          <p className="mt-2 text-xs text-zinc-400">Payment Status {props.details.operationalAuthority && draft.totalAmount === 0 && draft.amountPaid === 0 ? "complimentary" : getReconciledPaymentStatus(draft.totalAmount, draft.amountPaid).replaceAll("_", " ")}</p>
         </div>
       </div>
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -413,7 +414,7 @@ export function FinancialReconciliationModal(
         <summary className="cursor-pointer text-sm font-medium text-[#D8C36A]">Agreed financial breakdown</summary>
         <p className="mt-2 text-xs text-zinc-400">Existing payments stay unchanged.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {operationalFinancialFields.filter((key) => ["ticketAmount", "gratuityAmount", "barTabAmount", "otherAmount", "discountAmount"].includes(key) || Number(props.details.financialComponents?.[key]) > 0).map((key) => <MoneyInput key={key} label={{ ticketAmount: "Tickets", gratuityAmount: "Show gratuity", barTabAmount: "Prepaid bar", otherAmount: "Other charges", discountAmount: "Agreed deduction (not a payment)", forfeitedAmount: "Ticket forfeiture", gratuityForfeitedAmount: "Gratuity forfeiture", refundReviewAmount: "Refund reserved (not issued)", gratuityReviewAmount: "Gratuity reserved" }[key]}
+          {operationalFinancialFields.map((key) => <MoneyInput key={key} label={{ ticketAmount: "Tickets", gratuityAmount: "Show gratuity", barTabAmount: "Prepaid bar", otherAmount: "Other charges", discountAmount: "Agreed deduction (not a payment)", forfeitedAmount: "Ticket forfeiture", gratuityForfeitedAmount: "Gratuity forfeiture", refundReviewAmount: "Refund reserved (not issued)", gratuityReviewAmount: "Gratuity reserved" }[key]}
             value={financialComponents[key]} onChange={(amount) => setFinancialComponents((current) => current ? { ...current, [key]: amount } : current)} />)}
         </div>
         {!componentsValid && <p role="alert" className="mt-3 text-sm text-red-200">The breakdown must match the total.</p>}

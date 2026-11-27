@@ -16,6 +16,7 @@ export type GuestReductionBasis = {
   componentConfirmationRequired?: boolean;
   preserveFinancials?: boolean;
   componentRecoverySource?: string | null;
+  contractComponentsKnown?: boolean;
   confirmedComponents?: GuestReductionComponents;
   operationalAuthority?: boolean;
   operationalException?: { waivePenalty: boolean; transferGratuity: boolean };

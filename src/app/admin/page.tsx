@@ -39800,6 +39800,7 @@ export default function AdminDashboardPage({
                     )}
                     {bookingCustomerReassignmentReference === booking.reference && booking.updatedAt && (
                       <BookingCustomerReassignmentDialog
+                        operationalAuthority={currentStaff?.operationalAuthority}
                         bookingReference={booking.reference}
                         currentCustomerId={booking.customerId}
                         currentCustomerName={booking.customer.name || "Unnamed Guest"}

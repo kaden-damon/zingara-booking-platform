@@ -1,3 +1,31 @@
+# Consolidated Box Office Operational Remediation
+
+STATUS: VERIFIED TARGETED CORRECTIONS / APPLICATION RELEASE PENDING
+
+DATE: 27 NOVEMBER 2026
+
+- Continue existing authority work; real bookings and Frontend2 unchanged.
+- Baseline Main applicationa13200b,READYdpl_C3xa2bSRaW6mC44WbnAxT6JP74HH;
+  local1be3160 retains its verified evidence-only close-out for this release.
+- Reuse original components/reconciliation/metadata/customer-reassignment APIs.
+  Confirmed remaining gaps:COMP commercial edits/zero agreements,hidden zero
+  retained-allocation fields,paid add-on removal circular validation,and mandatory
+  customer-reassignment reason. No new role,API,table or pricing engine.
+- Function-only1000 migration applied after rollback-only fixture verification and
+  exact installed-definition drift guards. No business-data DML or ledger repair.
+- Actual coverage and limitations are appended to the existing operational-authority
+  archive. Do not represent unit/source checks as full authenticated workflows.
+-18 affected authenticated fixture saves/reopens pass (4 component/browser cases,
+  14 API/tempSQL cases),both venues,Rasmus/Lisa/Vanessa.33 focused tests,4 SQL
+  rejection/atomic rollback checks and2 legacy-deletion HTTP guards pass. Existing
+  recent regression evidence reused. Untouched creation/show-transfer/full-cancel
+  fresh end-to-end coverage remains unverified;not a claim of exhaustive sign-off.
+- Legacy deletion lacked active-staff authorization;existing SuperAdmin/venue
+  guards added without any actual deletion or new staff privilege. Paid data,
+  public capacity,refund/accounting authority and Frontend2 unchanged.
+- Final TypeScript,scoped lint and diff checks pass. Production application build,
+  unchanged performance-budget gate,READY/live-alias verification pending.
+
 # ZNG-YEUE6V Payment Recording Separation
 
 STATUS: RELEASED / READY; ACTUAL BOOKING UNCHANGED

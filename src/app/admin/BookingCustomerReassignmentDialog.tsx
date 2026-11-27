@@ -17,6 +17,7 @@ export default function BookingCustomerReassignmentDialog(props: {
   currentCustomerId?: string;
   currentCustomerName: string;
   expectedUpdatedAt: string;
+  operationalAuthority?: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -74,7 +75,7 @@ export default function BookingCustomerReassignmentDialog(props: {
   }
 
   async function confirm() {
-    if (!selected || reason.trim().length < 5) return;
+    if (!selected || (!props.operationalAuthority && reason.trim().length < 5)) return;
     setBusy(true);
     setStatus("Changing linked customer...");
     try {
@@ -150,13 +151,13 @@ export default function BookingCustomerReassignmentDialog(props: {
             <p className="mt-2 text-zinc-400">New</p><p className="font-semibold text-white">{selected.first_name} {selected.surname}</p>
           </div>
         )}
-        <label className="mt-4 block text-xs font-semibold uppercase tracking-[0.1em] text-zinc-400">Reason for change
+        {!props.operationalAuthority && <label className="mt-4 block text-xs font-semibold uppercase tracking-[0.1em] text-zinc-400">Reason for change
           <textarea className="mt-2 min-h-20 w-full rounded-xl border border-white/15 bg-black px-3 py-2 text-sm normal-case tracking-normal text-white" onChange={(event) => setReason(event.target.value)} value={reason} />
-        </label>
+        </label>}
         {status && <p aria-live="polite" className="mt-3 text-sm text-amber-100">{status}</p>}
         <div className="mt-4 flex justify-end gap-2">
           <button className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200" onClick={props.onClose} type="button">Cancel</button>
-          <button className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase text-black disabled:opacity-40" disabled={busy || !selected || reason.trim().length < 5} onClick={() => void confirm()} type="button">Confirm Change</button>
+          <button className="rounded-full bg-[#D8C36A] px-4 py-2 text-xs font-bold uppercase text-black disabled:opacity-40" disabled={busy || !selected || (!props.operationalAuthority && reason.trim().length < 5)} onClick={() => void confirm()} type="button">{props.operationalAuthority ? "Save changes" : "Confirm Change"}</button>
         </div>
       </div>
     </div>
