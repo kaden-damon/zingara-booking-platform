@@ -417,3 +417,32 @@ Private evidence:YEUE6V-before/functions-before/rejecting-functions/protected-re
 JSON;YEUE6V-workflow-results.json and four mobile screenshots. Existing task records
 and AGENTS updated;prior pending reconciliation/PayFast close-out records preserved.
 Release/unchanged cloud budget/live evidence pending below. Frontend2 untouched.
+
+### YEUE6V Production Release Evidence
+
+- Applicationa13200b14e0b5ca5d5a7b2d00be1a5e2512e48c5 pushed Main,including locally
+  retained220dfb8 and approved pending reconciliation/PayFast task records.
+  Verceldpl_C3xa2bSRaW6mC44WbnAxT6JP74HH READY;deployment URL
+  zingara-booking-platform-juicmjx5o-kaden-damons-projects.vercel.app. Independently
+  inspecting actual book.zingara.co.za resolves the same deployment ID;full-SHA
+  Production listing confirms the requested commit. No database migration applied.
+- Standard Turbopack/npm build and UNCHANGED performance gate pass:raw1308837/
+  1320000,gzip318758/320000,largest168974/170000 bytes. Lazy reuse reduced initial
+  raw/gzip and largest chunk;no limit increase,compiler bypass or new dependency.
+- Live public/admin pages200,unauthenticated mark-paid POST401. Actual consequential
+  authenticated save/reopen evidence remains the four isolated component/API/SQL
+  workflows described above;no live customer receipt was invented as a test.
+- Post-release read-only real booking/payment comparison matches original snapshot:
+  total10125,paid0,outstanding10125. Historical pricing/payment evidence and actual
+  booking remain for Vanessa to amend. No actual emails or supplier notifications
+  sent. Matching recent Vanessa issue query found no reference-linked record,so
+  no issue or reporter-notification delivery was invented or retrospectively sent.
+- Staff path:Edit Agreed Price ->Record payment beside Total Amount Paid,or existing
+  Record EFT. Enter genuine amount received,date and bank reference;Save payment.
+  No invoice reconstruction,commercial note or acknowledgement for named staff.
+  Staff resolution note: "Payments can now be recorded without changing the pricing
+  breakdown. Reopen the booking and choose Record payment."
+- Evidence:YEUE6V-production-release.json,YEUE6V-production-build.log,
+  YEUE6V-final-protected-verification.json and prior fixture results/screenshots.
+  Final evidence-only close-out committed locally per README for next release;
+  no redundant documentation-only deployment. Frontend2/checkpoints untouched.

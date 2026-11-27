@@ -1,6 +1,6 @@
 # ZNG-YEUE6V Payment Recording Separation
 
-STATUS: VERIFIED LOCALLY / RELEASE PENDING
+STATUS: RELEASED / READY; ACTUAL BOOKING UNCHANGED
 
 DATE: 27 NOVEMBER 2026
 
@@ -36,6 +36,19 @@ DATE: 27 NOVEMBER 2026
   and all-venue scope. Nomza/Tao still require verified account bindings.
   Generic allocation mismatch wording no longer incorrectly calls native bookings
   imported. Pricing/credit checks themselves remain intact;no database migration.
+- Released applicationa13200b14e0b5ca5d5a7b2d00be1a5e2512e48c5 to Main with prior
+  approved pending documentation. Verceldpl_C3xa2bSRaW6mC44WbnAxT6JP74HH READY;
+  actual book.zingara.co.za alias resolves this deployment. Standard cloud build
+  passes unchanged budgets:raw1308837/1320000,gzip318758/320000,largest168974/170000.
+- Live /book,/admin200;unauthenticated mark-paid POST401. Authenticated financial
+  actions were verified against isolated fixtures,not a real customer payment.
+  Final read-only actual booking/payment comparison unchanged:total/due10125,paid0.
+- Vanessa:Edit Agreed Price ->Record payment beside paid total,or existing Record
+  EFT;enter verified amount/date/bank reference and Save payment. No need to submit
+  historical pricing components. No new query during ordinary booking use.
+- No matching issue record supplied/found for this reference;no fabricated issue
+  completion or reporter email. Final evidence-only Markdown retained locally for
+  next authorised release,avoiding another deployment. Frontend2 untouched.
 
 # ZNG-XQU79F Authorised Unpaid Recovery
 
