@@ -21,10 +21,10 @@ test("manual EFT evidence and reversals are immutable and service-role only", as
   assert.match(sql, /revoke all on table public\.manual_payment_reversals from public, anon, authenticated/);
 });
 
-test("future EFT recording requires structured bank evidence and explicit confirmation", async () => {
+test("EFT recording keeps structured bank evidence and the existing non-operational confirmation", async () => {
   const sql = await source(migrationPath);
   const route = await source("src/app/api/admin/bookings/mark-paid/route.ts");
-  const page = await source("src/app/admin/page.tsx");
+  const page = await source("src/app/admin/BookingReconciliationModal.tsx");
 
   assert.match(sql, /p_amount_received numeric/);
   assert.match(sql, /p_received_on date/);
@@ -44,6 +44,19 @@ test("future EFT recording requires structured bank evidence and explicit confir
   assert.match(page, /A proof of payment[\s\S]+is not proof that the money was received/);
   assert.match(page, /I confirm[\s\S]+bank reference/);
   assert.match(page, /This will reduce the booking&apos;s outstanding balance/);
+});
+
+test("named Box Office staff record payments without price reconstruction or extra acknowledgement", async () => {
+  const route = await source("src/app/api/admin/bookings/mark-paid/route.ts");
+  const modal = await source("src/app/admin/BookingReconciliationModal.tsx");
+  assert.match(route, /hasBookingOperationalAuthority\(auth\.staffProfile\)/);
+  assert.match(route, /!operationalAuthority && body\.confirmed !== true/);
+  assert.match(route, /Verified EFT recorded through authorised Box Office payment controls/);
+  assert.match(modal, /!props\.operationalAuthority && <>/);
+  assert.match(modal, /onClick=\{props\.onRecordPayment\}/);
+  assert.doesNotMatch(route, /financialComponents|reconcile_booking_financials|booking_guest_reduction_basis/);
+  assert.match(route, /bankReference\.length < 3/);
+  assert.match(route, /record_manual_eft_payment_fee_aware_atomic/);
 });
 
 test("manual EFT supports deposits, balances and retry-safe full settlement", async () => {

@@ -39,7 +39,7 @@ const ERROR_RESPONSES: Array<{
   { code: "RETAINED_VALUE_ALLOCATION_REQUIRED", message: "Confirm the retained value transfer to Bar Tab.", status: 400 },
   { code: "LEGACY_FINANCIAL_EVIDENCE_REQUIRED", message: "Add the original invoice details before reducing this paid booking.", status: 409 },
   { code: "LEGACY_TICKET_RATE_INVALID", message: "The imported ticket, gratuity and Bar Tab values do not reconcile exactly. Review the evidence before continuing.", status: 409 },
-  { code: "RETAINED_VALUE_ALLOCATION_MISMATCH", message: "The imported ticket, gratuity and Bar Tab values do not reconcile exactly. Review the evidence before continuing.", status: 409 },
+  { code: "RETAINED_VALUE_ALLOCATION_MISMATCH", message: "The ticket, gratuity and bar amounts do not match this booking.", status: 409 },
   { code: "BOOKING_RECONCILIATION_NOT_ALLOWED", message: "This booking cannot be amended in its current status.", status: 409 },
   { code: "AMOUNT_PAID_BELOW_IMMUTABLE_EVIDENCE", message: "The paid amount cannot be reduced below verified provider or legacy payment evidence.", status: 409 },
   { code: "FINANCIAL_RECONCILIATION_UNCHANGED", message: "Enter a financial change before confirming.", status: 400 },

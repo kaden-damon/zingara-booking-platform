@@ -106,6 +106,9 @@ const FinancialReconciliationModal = dynamic(() =>
     (module) => module.FinancialReconciliationModal,
   ),
 );
+const ManualEftPaymentModal = dynamic(() =>
+  import("./BookingReconciliationModal").then((module) => module.ManualEftPaymentModal),
+);
 const GuestCountReconciliationModal = dynamic(() =>
   import("./BookingReconciliationModal").then(
     (module) => module.GuestCountReconciliationModal,
@@ -14202,8 +14205,8 @@ export default function AdminDashboardPage({
         financials.amountPaid,
       ).toFixed(2),
       bankReference: "",
-      confirmed: false,
-      evidenceNote: "",
+      confirmed: Boolean(currentStaff?.operationalAuthority),
+      evidenceNote: currentStaff?.operationalAuthority ? "Verified EFT recorded through authorised Box Office payment controls." : "",
       idempotencyKey:
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
@@ -26150,175 +26153,16 @@ export default function AdminDashboardPage({
               : null;
 
             return (
-              <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/75 px-4 text-white backdrop-blur-md">
-                <section className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[2rem] border border-emerald-300/30 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
-                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-200">
-                    {markPaidBooking?.status === "cancelled" &&
-                    markPaidBooking.corporatePaymentExpiredAt
-                      ? "Record Late Corporate EFT"
-                      : "Record Manual EFT"}
-                  </p>
-                  <h2 className="mt-3 text-2xl font-bold">
-                    {markPaidBooking?.customer.name ?? "Mark Booking Paid"}
-                  </h2>
-                  <p className="mt-3 text-sm leading-6 text-zinc-300">
-                    Record only money confirmed in the bank. A proof of payment
-                    on its own is not proof that the money was received.
-                  </p>
-                  {markPaidBooking?.status === "cancelled" &&
-                    markPaidBooking.corporatePaymentExpiredAt && (
-                      <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-950/20 px-4 py-3 text-sm leading-6 text-amber-100">
-                        Recording this EFT payment does not restore booking entitlement. Reopen Reinstate Booking afterward to confirm live capacity and reactivate the booking.
-                      </p>
-                    )}
-                  {markPaidBooking && markPaidFinancials && (
-                    <div className="mt-4 grid gap-3 rounded-2xl border border-white/10 bg-black/35 p-4 text-sm sm:grid-cols-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Booking</p>
-                        <p className="mt-1 font-semibold text-white">{markPaidBooking.reference}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Outstanding</p>
-                        <p className="mt-1 font-semibold text-white">
-                          {formatCurrency(
-                            calculateOutstandingAmount(
-                              markPaidFinancials.totalPrice,
-                              markPaidFinancials.amountPaid,
-                            ),
-                          )}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Method</p>
-                        <p className="mt-1 font-semibold text-white">EFT</p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                        Amount received
-                      </span>
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={markPaidConfirmation.amountReceived}
-                        onChange={(event) =>
-                          setMarkPaidConfirmation((current) =>
-                            current ? { ...current, amountReceived: event.target.value } : current,
-                          )
-                        }
-                        disabled={isMarkPaidProcessing}
-                        className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                        Date received
-                      </span>
-                      <input
-                        type="date"
-                        value={markPaidConfirmation.receivedOn}
-                        onChange={(event) =>
-                          setMarkPaidConfirmation((current) =>
-                            current ? { ...current, receivedOn: event.target.value } : current,
-                          )
-                        }
-                        disabled={isMarkPaidProcessing}
-                        className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </label>
-                  </div>
-
-                  <label className="mt-4 block">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Bank reference
-                    </span>
-                    <input
-                      value={markPaidConfirmation.bankReference}
-                      onChange={(event) =>
-                        setMarkPaidConfirmation((current) =>
-                          current ? { ...current, bankReference: event.target.value } : current,
-                        )
-                      }
-                      maxLength={120}
-                      disabled={isMarkPaidProcessing}
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                      placeholder="Bank transaction or statement reference"
-                    />
-                  </label>
-
-                  <label className="mt-4 block">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Evidence note
-                    </span>
-                    <textarea
-                      value={markPaidConfirmation.evidenceNote}
-                      onChange={(event) =>
-                        setMarkPaidConfirmation((current) =>
-                          current ? { ...current, evidenceNote: event.target.value } : current,
-                        )
-                      }
-                      rows={3}
-                      disabled={isMarkPaidProcessing}
-                      className="mt-2 w-full rounded-2xl border border-white/15 bg-black px-4 py-3 text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                      placeholder="Where the bank receipt was verified and any useful context."
-                    />
-                  </label>
-
-                  <label className="mt-4 flex items-start gap-3 rounded-2xl border border-emerald-300/25 bg-emerald-950/15 p-4 text-sm leading-6 text-zinc-200">
-                    <input
-                      type="checkbox"
-                      checked={markPaidConfirmation.confirmed}
-                      onChange={(event) =>
-                        setMarkPaidConfirmation((current) =>
-                          current ? { ...current, confirmed: event.target.checked } : current,
-                        )
-                      }
-                      disabled={isMarkPaidProcessing}
-                      className="mt-1 h-4 w-4 accent-emerald-300"
-                    />
-                    <span>
-                      I confirm {markPaidBooking?.customer.name ?? "this customer"}&apos;s EFT of {formatCurrency(Number(markPaidConfirmation.amountReceived) || 0)} was received on {markPaidConfirmation.receivedOn || "the selected date"} with bank reference {markPaidConfirmation.bankReference.trim() || "not entered"}.
-                      This will reduce the booking&apos;s outstanding balance.
-                    </span>
-                  </label>
-
-                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                    <button
-                      type="button"
-                      onClick={closeMarkPaidConfirmation}
-                      disabled={isMarkPaidProcessing}
-                      className="rounded-full border border-white/20 px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-zinc-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void confirmMarkPaid()}
-                      disabled={
-                        isMarkPaidProcessing ||
-                        !Number.isFinite(Number(markPaidConfirmation.amountReceived)) ||
-                        Number(markPaidConfirmation.amountReceived) <= 0 ||
-                        !markPaidConfirmation.receivedOn ||
-                        markPaidConfirmation.bankReference.trim().length < 3 ||
-                        markPaidConfirmation.evidenceNote.trim().length < 3 ||
-                        !markPaidConfirmation.confirmed
-                      }
-                      className="rounded-full border border-emerald-300/45 bg-emerald-300 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isMarkPaidProcessing
-                        ? "Recording payment..."
-                        : markPaidBooking?.status === "cancelled" &&
-                            markPaidBooking.corporatePaymentExpiredAt
-                          ? "Confirm Late EFT"
-                          : "Confirm EFT Received"}
-                    </button>
-                  </div>
-                </section>
-              </div>
+              <ManualEftPaymentModal
+                booking={markPaidBooking}
+                financials={markPaidFinancials}
+                draft={markPaidConfirmation}
+                isSaving={isMarkPaidProcessing}
+                operationalAuthority={Boolean(currentStaff?.operationalAuthority)}
+                onChange={setMarkPaidConfirmation}
+                onClose={closeMarkPaidConfirmation}
+                onSave={() => void confirmMarkPaid()}
+              />
             );
           })()}
 
@@ -41632,6 +41476,10 @@ export default function AdminDashboardPage({
           error={financialReconciliation.error}
           isSaving={financialReconciliation.isSaving}
           onClose={() => setFinancialReconciliation(null)}
+          onRecordPayment={() => {
+            const booking = bookings.find((item) => item.reference === financialReconciliation.details.booking.bookingReference);
+            if (booking) { setFinancialReconciliation(null); openMarkPaidConfirmation(booking); }
+          }}
           onSave={(draft) => void saveFinancialReconciliation(draft)}
           reason={financialReconciliation.reason}
           totalAmount={financialReconciliation.totalAmount}

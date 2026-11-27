@@ -1,4 +1,5 @@
 import { normalizeStaffVenueScope } from "@/lib/staffLocations";
+import { hasBookingOperationalAuthority } from "@/lib/bookingOperationalAuthority";
 import { after } from "next/server";
 import { notifyConfirmedDietaryOrderByBookingId } from "@/lib/email/dietaryOrderNotification";
 import {
@@ -131,10 +132,11 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json().catch(() => ({}))) as MarkPaidBody;
+    const operationalAuthority = hasBookingOperationalAuthority(auth.staffProfile);
     const bookingReference = body.bookingReference?.trim().toUpperCase() ?? "";
     const amountReceived = Number(body.amountReceived);
     const bankReference = body.bankReference?.trim() ?? "";
-    const evidenceNote = body.evidenceNote?.trim() ?? "";
+    const evidenceNote = body.evidenceNote?.trim() || (operationalAuthority ? "Verified EFT recorded through authorised Box Office payment controls." : "");
     const expectedUpdatedAt = body.expectedUpdatedAt?.trim() ?? "";
     const idempotencyKey = body.idempotencyKey?.trim() ?? "";
     const receivedOn = body.receivedOn?.trim() ?? "";
@@ -148,7 +150,7 @@ export async function POST(request: Request) {
       bankReference.length > 120 ||
       evidenceNote.length < 3 ||
       evidenceNote.length > 500 ||
-      body.confirmed !== true ||
+      (!operationalAuthority && body.confirmed !== true) ||
       !expectedUpdatedAt ||
       !idempotencyKey ||
       idempotencyKey.length > 128

@@ -326,3 +326,94 @@ No Frontend2 changes, new structures, configuration writes or customer emails.
   No changes to Frontend2 or unrelated work/checkpoints. Private evidence retained
   in financial-recovery-*-results.json,financial-recovery-production-readback.json,
   financial-recovery-live-release.json and mobile screenshots,not Git.
+
+### Targeted Recalculation Confirmation, 26 November
+
+User requested verification only unless a defect was found. No further defect
+identified in the known-versus-unknown routing reviewed. No application change,
+database/configuration mutation,permission change or deployment performed.
+
+Reused actual authenticated8 attendance/2 financial-editor save/reopen evidence,
+plus previous known-policy bypass rejection and both-venue operational fixtures.
+Targeted assertions against those saved results confirm known ticket/gratuity
+components are recalculated,not frozen:25->21 yields32340 tickets/4042.50 gratuity;
+outside cutoff unpaid total/outstanding36382.50,or26382.50 outstanding with10000
+paid. Late default retains6160 ticket+770 gratuity forfeiture; approved bar option
+holds6930 bar instead. Grand total can legitimately remain unchanged when actual
+paid value is retained in those classifications or a reserved refund. This does
+not mean ticket/gratuity components failed to recalculate. Contractual fixed
+Buyout/package totals are intentionally distinct from unknown-itemisation fallback.
+
+Missing-evidence attendance fixtures alone preserve all monetary fields,without
+inventing a financial allocation. SQL rechecks the authoritative unknown-basis
+flag under lock and rejects that path when a known basis exists. API recomputes
+the basis rather than trusting a client-requested preserve flag. Real payment
+records remain immutable in either path; refund authority and other guards remain.
+
+ONE bounded read-only Production query verified Fatima,Lisa,Michael,Vanessa,Sharon,
+Rasmus,Hannah,Nosi:all active,server operational authority=true,venue_scope includes
+all. Each resolves actual Lisa basis tickets38500/gratuity4812.50/other0,
+preserveFinancials=false,blockedReason=null. No venue-specific branch narrows this
+recovery; previous actual CapeTown/Johannesburg fixture evidence reused. Nomza/Tao
+still require verified active account bindings;do not claim permissions for them.
+No real financial save used as QA. Private result:
+local-evidence/financial-recovery-staff-followup.json. Live release unchanged:
+6960b03,dpl_4bGJ2uVTf5jomvXHevND7bRpkqeR. Documentation retained for next release,
+not pushed to trigger an unnecessary application deployment.
+
+## 27 November: Verified Receipts Independent Of Price Reconciliation
+
+ZNG-YEUE6V report:Vanessa cannot update paid total because of imported-allocation
+wording. Actual read-only evidence:Corporate/native,6 RoyalBalcony,Johannesburg
+10December,total10125,paid0,due10125,no payment or imported evidence rows.
+Historical10->6 amendment changed agreed total but retained1563 gratuity. Notes
+mention drinks;they do not authorise inventing new invoice components or payments.
+
+Confirmed workflow gap:the financial editor preserves recorded payments and
+validates priced/prepaid components;its generic allocation error applies to native
+bookings too. Existing `record_manual_eft_payment_fee_aware_atomic` is already
+independent of invoice decomposition. Installed rejecting-function inspection shows
+the mismatch belongs to pricing/cancellation allocation,not receipt posting.
+No original failed request payload was supplied;do not claim a failed EFT receipt
+was found in Production. The correction supplies the safe existing operational
+route rather than weakening legitimate unfunded-bar/component validation.
+
+- Record payment beside the read-only paid amount opens the existing EFT form,
+  using the same parent handler,mark-paid API,atomic receipt/evidence function and
+  automatic Timeline audit. Existing standalone Record EFT also remains available.
+- Same form moved unchanged into the existing lazy booking-controls module to
+  retain its controls/style,enable actual isolated UI verification and protect
+  the tight initial-route budget. No duplicate form/module/API/payment engine.
+- Named staff enter verified amount,date and bank reference and save directly.
+  No extra note/acknowledgement;server independently derives actual staff authority,
+  supplies a clearly system-generated audit description and keeps SQL confirmation
+  contract. Other staff's existing evidence/confirmation checks and permissions
+  remain. No commercial override or price reconciliation is required to post money.
+- Existing amount/date/reference,venue/role,duplicate,idempotency,receipt evidence,
+  lifecycle,outstanding-balance,fee and ticket/notification rules remain. No
+  aggregate paid amount is silently changed without a corresponding receipt.
+- Generic allocation mismatch wording now refers to this booking,not incorrectly
+  to imported data. Original financial evidence and historical prices are not
+  corrected,normalised or repriced during payment recording. No migration needed.
+
+Four authenticated actual component/API/temporary-SQL save/reopen cases pass:
+Vanessa's verified profile/auth IDs,native and mismatched imported records at both
+venues. Each records2500 (balance7625),then7625 (paid10125,balance0),retaining original
+total10125/subtotal8562/gratuity1563 and imported source evidence. Structured receipt
+rows2;retries idempotent,new duplicate-reference requests409,unprivileged403. No
+reason/checkbox in named UI;backend accepts missing note/false extra acknowledgement
+only because trusted authenticated identity resolves approved authority. Screenshots
+390px show no horizontal overflow. Fixture-side notifications are blocked.
+
+Eight focused EFT integrity tests pass,including immutability,reversals,provider
+separation and the new payment-versus-pricing authority contract. TypeScript and
+extracted-component/API/test/error-map lint pass. Existing large-page lint baseline
+debt is not represented as a new green repository-wide lint run. Prior amendment/
+authority tests reused. Read-only Production check:real booking/payment rows
+unchanged;all8 active bound profiles retain all-location authority. Nomza/Tao still
+require verified bindings. No real payment,booking,ticket or communication created.
+
+Private evidence:YEUE6V-before/functions-before/rejecting-functions/protected-readback
+JSON;YEUE6V-workflow-results.json and four mobile screenshots. Existing task records
+and AGENTS updated;prior pending reconciliation/PayFast close-out records preserved.
+Release/unchanged cloud budget/live evidence pending below. Frontend2 untouched.

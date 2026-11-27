@@ -1,3 +1,91 @@
+# ZNG-YEUE6V Payment Recording Separation
+
+STATUS: VERIFIED LOCALLY / RELEASE PENDING
+
+DATE: 27 NOVEMBER 2026
+
+- Read AGENTS/README/current records and preserve existing uncommitted close-outs.
+  Actual booking is native Corporate,not imported:6 RoyalBalcony,Johannesburg10Dec,
+  total10125,paid0,balance10125. No payments/imported evidence;actual row unchanged.
+  Historical10->6 amendment kept1563 gratuity while total changed14063->10125.
+- Existing paths:FinancialReconciliationModal/reconciliation API edit prices and
+  preserve receipts;Record EFT/mark-paid API/record_manual_eft_payment_fee_aware_atomic
+  independently append structured receipt evidence. Generic imported allocation
+  error belongs to pricing/credit safeguards,not the receipt function. Never weaken
+  unfunded-bar validation or guess a new historical price split to record payment.
+- Reuse:Record payment beside read-only paid total opens existing EFT form. Move
+  that same form to existing lazy booking-controls module to protect initial bundle
+  and permit actual component/API fixture verification. No duplicate receipt UI/API.
+  Named staff save amount/date/bank reference directly,without extra note/checkbox;
+  server derives authority and automatic audit description. Existing receipt/date,
+  duplicate,amount,balance,permission,venue and financial integrity guards remain.
+- Verify actual authenticated Vanessa fixture partial/full receipts,reopen,both
+  venues,native/imported mismatches,idempotent retries,duplicate/permission denials;
+  preserve original pricing/evidence. No real booking/payment changes or emails.
+  No migration required. Essential tests,scoped release and live verification pending.
+- Four actual authenticated component/API/temporary-SQL workflows pass:Vanessa
+  native/imported mismatched pricing at both venues. Each records2500 then7625,
+  reopens paid10125/balance0,keeps total10125/subtotal8562/gratuity1563 unchanged,
+  preserves original imported evidence,appends2 structured receipts. Retry remains
+  idempotent;new duplicate reference and unauthorised requests denied.
+- Eight focused EFT integrity tests,TypeScript and component/API/test/error-map
+  lint/diff pass. Existing amendment/authority evidence reused,not repeated.
+  Fixture emails/after callbacks blocked;no real transactions or communications.
+- Read-only current Production check confirms actual booking/payment rows exactly
+  match before:paid0,due10125. All8 active bound staff have operational authority
+  and all-venue scope. Nomza/Tao still require verified account bindings.
+  Generic allocation mismatch wording no longer incorrectly calls native bookings
+  imported. Pricing/credit checks themselves remain intact;no database migration.
+
+# ZNG-XQU79F Authorised Unpaid Recovery
+
+STATUS: REINSTATED UNPAID / TWO ZONE PLACES RESERVED / PAYMENT PROOF OUTSTANDING
+
+DATE: 26 NOVEMBER 2026
+
+- Original booking:Johannesburg23Dec17:00,GoldenCircle2,total3080,paid0,balance3080.
+  Created12:39:01 SAST,PayFast initiation12:39:02,hold deadline13:09:01,expired13:09:14.
+  Pending checkout gross3090 includes10 gateway fee;not a received payment.
+  No provider transaction,ITN receipt,browser return,paid tickets or communications.
+- User confirms no verified receipt;Hannah awaiting customer proof. Explicitly
+  authorised original unpaid reinstatement,secure two places,no further expiry,
+  no charge or paid tickets. No guessed payment or provider-fault attribution.
+- Existing preview READY:83/120 GoldenCircle entitlement,37 available,35 after
+  recovery. No configured physical table free;preserve others and leave existing
+  Assignment Queue for BoxOffice physical placement. Do not assign phantom seats.
+- Reuse reinstate_released_booking_atomic with verified Kaden identity,revision,
+  idempotency and capacity guards. Existing confirmed status plus retained expiry
+  evidence prevents another unpaid checkout expiry;verify actual expiry guard.
+  No new workflow,application change,migration or deployment required so far.
+- Targeted14-day read-only query:no other future,expired,cancelled booking with a
+  successful recorded PayFast payment. Prior delayed-notification findings reused;
+  unnotified/abandoned attempts alone do not prove bank debit or provider fault.
+- Preserve prior uncommitted follow-up Markdown/private evidence and Frontend2.
+  Existing PayFast investigation archive holds detailed evidence and final actions.
+- COMPLETED26Nov21:33:51 SAST through existing atomic lifecycle. Original reference,
+  purchaser/attendee,show,two guests and all financial fields preserved. Confirmed,
+  unarchived,pending_payment,paid0,total/outstanding3080. Exactly one reinstatement
+  audit and lifecycle event,Kaden-authorised automated maintenance. No new booking,
+  payment,charge,table,capacity,paid ticket or communication created.
+- Installed expiry guard actually exercised inside the guarded transaction:
+  expired=false,idempotent=true. Post-commit readback due_public_hold=false,
+  retained original expiry evidence,statusconfirmed. No repeat30-minute expiry.
+- GoldenCircle approved120,active85,remaining35. Two entitlements secured but
+  assignable physical table capacity0;existing Floor assignment required,table_idnull.
+  Do not claim a specific physical table has been reserved or displace existing guests.
+- Payment evidence remains unverified:two pending rows are reservation/checkout
+  records,NOT two received payments. No provider ID/ITN/paid ticket/confirmation.
+  Hannah to obtain proof and check PayFast/bank before any further collection;
+  BoxOffice to place the two guests through existing Floor workflow.
+- Three focused existing ITN reliability tests pass;Phase65/idempotency evidence
+  reused. Installed confirmation core handles an unarchived restored booking when
+  a genuine validated notification arrives;no callback replay/synthetic payment.
+  No confirmed new application defect,so no code change,migration or deployment.
+- Private evidence:XQU79F-before/payment-and-capacity/context/notification-safeguards,
+  authorised-recovery-result and final-verification JSON. Local guarded transaction
+  first rolled back on an ambiguous verification alias;corrected local query then
+  committed once. Final audit count1,payment rows2,tickets0,communications0.
+
 # Box Office Historical Financial Recovery
 
 STATUS: RELEASED / READY; LISA'S REAL BOOKING UNCHANGED
@@ -43,6 +131,29 @@ DATE: 26 NOVEMBER 2026
   README,avoiding a second documentation-only Production build. Frontend2 and
   private rollback evidence untouched. Lisa can reopen Edit Guest Count and save;
   no historical invoice reconstruction is required.
+
+## Targeted Follow-Up: Recalculation Versus Preservation
+
+26 November: CONFIRMED; NO APPLICATION CHANGES OR DEPLOYMENT.
+- Reused the8 attendance/2 payment-editor authenticated save/reopen results and
+  existing known-basis bypass rejection. Known components recalculate remaining
+  tickets,gratuity,eligible allocations,total and outstanding under existing policy.
+  Converted unpaid25->21:total36382.50/paid0/balance36382.50;partial paid10000 gives
+  balance26382.50. Grand totals need not fall when paid value remains correctly
+  represented by forfeiture,reserved refund or authorised bar credit.
+- Attendance-only financial preservation is restricted to genuinely unavailable
+  reliable itemisation,with coherent existing money/lifecycle. Known basis cannot
+  invoke that overload. Fixed Buyout/agreed-package rules remain separate; this
+  is not blanket repricing of contractual fixed totals or historical payments.
+- ONE focused read-only Production query confirms all8 existing approved active
+  staff have authority and all-venue scopes; each resolves Lisa's38500/4812.50
+  known basis with preserveFinancials=false,no component blocker. Earlier actual
+  CapeTown/Johannesburg fixture coverage reused;no repeated browser/save QA.
+- Fatima,Lisa,Michael,Vanessa,Sharon,Rasmus,Hannah,Nosi covered. Nomza/Tao remain
+  without verified bindings and require provisioning/identity verification before
+  access. No identities/permissions or real bookings changed.
+- Existing Markdown records updated only;retain with next authorised release.
+  Live application remains6960b03/dpl_4bGJ2uVTf5jomvXHevND7bRpkqeR.
 
 # Urgent Box Office Operational Authority
 

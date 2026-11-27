@@ -111,3 +111,7 @@ historical invoices merely to reduce attendance. If itemisation is genuinely
 unavailable, reuse the attendance amendment with all existing financial amounts
 unchanged; never guess refund, forfeiture or bar-credit components. Test converted
 bookings in their original saved state, without first normalising their finances.
+
+Record genuine receipts through the existing evidence-backed payment workflow,
+independently of historical pricing reconciliation. A pricing-component mismatch
+must not block receipt recording or prompt fabricated components or payments.

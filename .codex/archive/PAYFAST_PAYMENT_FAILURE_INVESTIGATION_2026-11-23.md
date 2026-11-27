@@ -508,3 +508,86 @@ absence of such a record is not proof of money owed or a failed confirmation.
 No app code, migrations, fixes, import, booking/payment/ticket/customer changes,
 communications, commit, push or deployment. Frontend 2.0 and all prior work
 preserved. Only local evidence and established Markdown records updated.
+
+## 26 November: ZNG-XQU79F Authorised Unpaid Reinstatement
+
+STATUS: ORIGINAL BOOKING RESTORED; PAYMENT AND PHYSICAL TABLE PLACEMENT OUTSTANDING.
+
+The current user explicitly authorises the existing booking's recovery and confirms
+Hannah has no verified payment receipt yet. Superseding instruction:keep unpaid,
+reserve two places,prevent repeat expiry,no new charge or paid tickets. This is a
+specific authorised operational action,not a new platform phase or policy change.
+
+### Confirmed Payment Trace (SAST,26 November)
+
+- 12:39:01:original public booking created,Johannesburg23December17:00,GoldenCircle2,
+  total3080,purchaser/attending guest separately retained.
+- 12:39:02:server prepares PayFast checkout successfully(200). Pending checkout row
+  records3080 booking value+10 fee=3090 gateway gross. The earlier zero reservation
+  placeholder and this pending attempt are NOT received payments or a double charge.
+- 12:39:03:browser records redirect to PayFast. No recorded browser return,
+  provider transaction ID,successful allocation or ITN receipt. No failed/rejected/
+  retryable notification for this reference or checkout payment identity was found.
+- 13:09:01:original30-minute hold deadline. 13:09:14:SYSTEM cancels/archives because
+  no successful payment was recorded. Hannah's later open/close edit locks caused
+  no booking/payment change. No tickets or customer communication had been issued.
+
+This establishes Zingara's recorded lifecycle,not whether the bank debited the
+customer or PayFast captured funds. No receipt is available,as the user confirms;
+provider payment/method/dispatch times and cause of absent notification are unknown.
+Do not describe the pending3080 as collected or blame PayFast/bank/Zingara without
+provider evidence. No payment was retried,replayed,manually invented or marked paid.
+
+### Actual Authorised Recovery And Verification
+
+Existing `preview_booking_reinstatement` returned READY,GoldenCircle83/120,
+37 available and35 after recovery. Verified existing Kaden profile/auth identity,
+not a guessed staff name. `reinstate_released_booking_atomic` ran with original
+revision,stable idempotency key,actor identity,capacity and protected-money checks.
+Function drift and competing edit-lock checks preceded execution. No new RPC,
+application workflow,migration,capacity exception or direct financial rewrite.
+
+Committed26Nov21:33:51 SAST:original booking confirmed,archive removed,2 guests,
+total3080,paid0,outstanding3080,payment_status pending_payment. All other booking
+fields,purchaser/attendee,original hold evidence,payment rows and show tables were
+asserted unchanged in the atomic transaction. Existing audit/lifecycle mechanisms
+record the authorised action. Auditcebb3879-49cb-49ab-9faa-fc601276069a,
+requestauthorised-XQU79F-unpaid-recovery-20261126;one successful reinstatement only.
+The local first attempt rolled back entirely on a verification SQL alias ambiguity;
+the corrected local verification completed once. This was not an application fault.
+
+Actual installed `expire_public_booking_hold` returned expired=false,idempotent=true
+after recovery. Post-commit readback confirms retained expired-hold evidence and
+confirmed status exclude this booking from due public hold expiry. No repeated
+expiry window was created. Installed confirmation core recognises unarchived
+bookings when a future genuine validated notification arrives;existing provider
+identity/idempotency and ticket/notification guards remain. No synthetic callback
+or payment was submitted to Production to test this.
+
+Two GoldenCircle entitlements are now reserved:active85/approved120,remaining35,
+no capacity increase. Physical assignable capacity is currently0;existing tables
+are occupied or unconfigured. Leave table_idnull in existing Floor assignment
+workflow rather than assign a virtual table as a false physical guarantee,displace
+guests or invent seats. Hannah/BoxOffice must complete physical placement.
+
+Final verification:payment rows2 unchanged,valid tickets0,communications0,
+reinstatement audits1;Carla remains attending guest,Asher remains purchaser.
+No paid confirmation or ticket sent. Hannah should obtain customer proof and
+check the original PayFast attempt before requesting any additional payment.
+Only after genuine successful payment should existing payment/ticket/confirmation
+workflows proceed;never treat customer proof alone as a validated ITN or charge twice.
+
+### Related Cases And Scope
+
+ONE bounded read-only14-day query found no other future booking with recorded
+successful PayFast payment still cancelled following public checkout expiry.
+That does not prove all unknown/abandoned checkouts were unpaid or identify bank
+debits without provider evidence. Earlier16 delayed-payment findings remain dated
+evidence,not proof this current case has the same external cause. No new platform
+defect confirmed. Three existing focused ITN reliability/validation/idempotency/fee
+tests pass;Phase65 evidence reused. No app change or deployment necessary.
+
+Private local evidence:XQU79F-before.json,XQU79F-payment-and-capacity.json,
+XQU79F-context.json,XQU79F-notification-safeguards.json,
+XQU79F-authorised-recovery-result.json,XQU79F-final-verification.json.
+Existing checkpoints,prior uncommitted documentation and Frontend2 untouched.
